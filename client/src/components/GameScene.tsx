@@ -6,7 +6,9 @@
 
 import React, { useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { Sky, Cloud, Clouds } from '@react-three/drei';
+import { Stars, Environment, SoftShadows, ContactShadows } from '@react-three/drei';
+import { EffectComposer, Bloom, Vignette, ToneMapping } from '@react-three/postprocessing';
+import { ToneMappingMode } from 'postprocessing';
 import * as THREE from 'three';
 import { DirectionalLightHelper, CameraHelper } from 'three';
 import { PlayerData, InputState, MarketAsset } from '../generated/types';
@@ -39,42 +41,47 @@ export const GameScene: React.FC<GameSceneProps> = ({
       camera={{ position: [0, 10, 20], fov: 60 }} 
       style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1 }} 
       shadows
+      gl={{ antialias: true, toneMappingExposure: 1.1 }}
+      dpr={[1, 1.75]}
     >
-      {/* Bright Miami daytime sky — sun high for clear, vibrant lighting */}
-      <Sky distance={450000} sunPosition={[60, 35, 20]} inclination={0.49} azimuth={0.25} mieCoefficient={0.004} mieDirectionalG={0.8} rayleigh={1.1} turbidity={6} />
-      <fog attach="fog" args={['#aee4ff', 160, 420]} />
-      <color attach="background" args={['#9fd8ff']} />
+      {/* Deep cyberpunk night — dark base so the neon bloom reads intensely */}
+      <fog attach="fog" args={['#070310', 60, 260]} />
+      <color attach="background" args={['#05030d']} />
 
-      {/* Soft drifting clouds for a sunny coastal feel */}
-      <Clouds material={THREE.MeshBasicMaterial} limit={40}>
-        <Cloud seed={1} segments={28} bounds={[60, 6, 30]} volume={14} color="#ffffff" opacity={0.55} position={[-30, 55, -40]} speed={0.15} />
-        <Cloud seed={9} segments={24} bounds={[50, 5, 28]} volume={12} color="#eef6ff" opacity={0.5} position={[40, 62, -20]} speed={0.12} />
-      </Clouds>
+      {/* Soft contact shadows so cars/character feel grounded, not floating */}
+      <SoftShadows size={28} samples={16} focus={0.85} />
 
-      {/* Strong, even daylight so every surface is clearly readable and colorful */}
-      <ambientLight intensity={1.15} color="#ffffff" />
-      <hemisphereLight args={['#bfe6ff', '#d9c39a', 1.25]} />
+      {/* Night HDRI for realistic reflections on glassy buildings + car bodies */}
+      <Environment preset="night" resolution={256} />
 
-      {/* Warm sun key light with crisp shadows */}
+      {/* Dim starfield dome */}
+      <Stars radius={340} depth={90} count={2400} factor={6} saturation={0.5} fade speed={0.5} />
+
+      {/* Low ambient — night scene relies on neon + key light, not flat fill */}
+      <ambientLight intensity={0.25} color="#5b6bff" />
+      <hemisphereLight args={['#3a2a6a', '#0a0612', 0.4]} />
+
+      {/* Cool moonlight key with soft shadows */}
       <directionalLight 
         ref={directionalLightRef}
-        position={[40, 55, 25]} 
-        color="#fff3da"
-        intensity={2.6} 
+        position={[-28, 40, -18]} 
+        color="#9fb8ff"
+        intensity={1.6} 
         castShadow 
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
         shadow-bias={-0.0001}
-        shadow-camera-left={-60}
-        shadow-camera-right={60}
-        shadow-camera-top={60}
-        shadow-camera-bottom={-60}
+        shadow-camera-left={-70}
+        shadow-camera-right={70}
+        shadow-camera-top={70}
+        shadow-camera-bottom={-70}
         shadow-camera-near={0.1}
-        shadow-camera-far={200}
+        shadow-camera-far={220}
       />
 
-      {/* Cool sky bounce fill from the opposite side */}
-      <directionalLight position={[-30, 20, -18]} color="#bfe6ff" intensity={0.55} />
+      {/* Magenta + cyan neon rim fill (Vice City night) */}
+      <directionalLight position={[26, 14, 20]} color="#ff2d95" intensity={0.5} />
+      <directionalLight position={[8, 10, -30]} color="#16d6ff" intensity={0.45} />
 
       {/* Conditionally render Light and Shadow Camera Helpers */}
       {isDebugPanelVisible && directionalLightRef.current && (
@@ -86,6 +93,19 @@ export const GameScene: React.FC<GameSceneProps> = ({
       )}
       
       <FinancialCity marketAssets={marketAssets} />
+
+      {/* Soft contact shadows across the central streets so characters + cars
+          read as grounded on the floor (updates every frame as they move). */}
+      <ContactShadows
+        position={[0, 0.03, -8]}
+        scale={130}
+        resolution={1024}
+        blur={2.6}
+        far={6}
+        opacity={0.65}
+        color="#01040a"
+        frames={Infinity}
+      />
 
       {/* Render Players */}
       {Array.from(players.values()).map((player) => {
@@ -103,7 +123,18 @@ export const GameScene: React.FC<GameSceneProps> = ({
         );
       })}
 
-      {/* Remove OrbitControls as we're using our own camera controls */}
+      {/* ---- POST-PROCESSING: bloom makes HDR neon glow against the dark night ---- */}
+      <EffectComposer multisampling={4}>
+        <Bloom
+          intensity={1.5}
+          luminanceThreshold={0.55}
+          luminanceSmoothing={0.22}
+          mipmapBlur
+          radius={0.85}
+        />
+        <Vignette eskil={false} offset={0.25} darkness={0.85} />
+        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+      </EffectComposer>
     </Canvas>
   );
 };

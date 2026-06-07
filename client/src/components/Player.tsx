@@ -111,6 +111,9 @@ export const Player: React.FC<PlayerProps> = ({
   const isPointerLocked = useRef(false);
   const zoomLevel = useRef(5);
   const targetZoom = useRef(5);
+  // Smoothed camera look-at target (gives the camera a soft spring-trail feel)
+  const cameraLookRef = useRef<THREE.Vector3>(new THREE.Vector3());
+  const cameraInitializedRef = useRef(false);
   
   // Orbital camera variables
   const [cameraMode, setCameraMode] = useState<string>(CAMERA_MODES.FOLLOW);
@@ -439,7 +442,18 @@ export const Player: React.FC<PlayerProps> = ({
               action.setLoop(THREE.LoopOnce, 1);
               action.clampWhenFinished = true;
             }
-            
+
+            // --- T-POSE FIX ---
+            // Play idle the MOMENT it loads instead of waiting for all ~14
+            // animation files to download. This stops the model from lingering
+            // in a T-pose while the rest of the clips stream in.
+            if (name === 'idle') {
+              action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.25).play();
+              setCurrentAnimation('idle');
+            }
+            // Make the clip available to the animation system immediately.
+            setAnimations((prev) => (prev[name] ? prev : { ...prev, [name]: action }));
+
             console.log(`✅ Animation "${name}" processed and ready.`);
           } catch (e) {
             console.error(`Error processing animation ${name}:`, e);
@@ -1031,8 +1045,8 @@ export const Player: React.FC<PlayerProps> = ({
         const playerRotationY = localRotationRef.current.y; 
 
         if (cameraMode === CAMERA_MODES.FOLLOW) {
-          // --- FOLLOW CAMERA MODE --- 
-          const cameraHeight = 2.5;
+          // --- FOLLOW CAMERA MODE (spring trail) --- 
+          const cameraHeight = 2.6;
           const currentDistance = zoomLevel.current;
 
           // Calculate camera position based on player rotation and distance
@@ -1042,14 +1056,18 @@ export const Player: React.FC<PlayerProps> = ({
             playerPosition.z - Math.cos(playerRotationY) * currentDistance 
           );
 
-          // Smoothly move camera towards the target position
-          const cameraDamping = 12;
+          // Smoothly trail the camera towards the target (lower damping = softer spring).
+          const cameraDamping = 6.5;
           camera.position.lerp(targetPosition, Math.min(1, dt * cameraDamping));
 
-          // Make camera look at a point slightly above the player's base
-          const lookHeight = 1.8;
-          const lookTarget = playerPosition.clone().add(new THREE.Vector3(0, lookHeight, 0));
-          camera.lookAt(lookTarget);
+          // Smoothly interpolate the look-at target too, so quick turns don't snap.
+          const desiredLook = playerPosition.clone().add(new THREE.Vector3(0, 1.8, 0));
+          if (!cameraInitializedRef.current) {
+            cameraLookRef.current.copy(desiredLook);
+            cameraInitializedRef.current = true;
+          }
+          cameraLookRef.current.lerp(desiredLook, Math.min(1, dt * 9));
+          camera.lookAt(cameraLookRef.current);
         } else if (cameraMode === CAMERA_MODES.ORBITAL) {
           // --- ORBITAL CAMERA MODE ---
           const orbital = orbitalCameraRef.current;

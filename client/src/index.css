@@ -33,6 +33,26 @@ html,
   background-color: #222;
 }
 
+/* Keep the 3D canvas cleanly separated from the HTML/CSS UI overlay:
+   dragging to steer/look must never highlight on-screen text. */
+.App,
+canvas {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+canvas {
+  outline: none;
+  touch-action: none;
+}
+/* But real text inputs in the UI panels stay fully selectable/editable. */
+input,
+textarea,
+[contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 h1 {
   font-size: 3.2em;
   line-height: 1.1;

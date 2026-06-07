@@ -8,10 +8,10 @@ import { MarketAsset } from '../generated/types';
 // Dusk neon palette: hot pink, cyan, purple, sunset orange.
 // ---------------------------------------------------------------------------
 
-// Bright Miami / Vice City daytime accents (art-deco neon trims)
-const NEON = ['#ff5fa2', '#16d6ff', '#b06bff', '#ff9d3d', '#39e36b', '#ffd84d'];
-// Pastel building façade palette — sunny, colorful, clean
-const PASTEL = ['#ffd9e6', '#bfeeff', '#ffe9c2', '#d6f5dd', '#e8dcff', '#fff1c9', '#ffd2c2', '#cfefff'];
+// Vice City night neon accents (used at HDR intensity so Bloom catches them)
+const NEON = ['#ff2d95', '#16d6ff', '#b06bff', '#ff7b2d', '#39e36b', '#ffd400'];
+// Dark glassy façade tints — high-metalness towers reflect the neon city
+const GLASS = ['#0a0e1c', '#0c0a1f', '#08121c', '#140a1e', '#0a141c', '#10101f', '#0e0a16', '#08101a'];
 
 interface BuildingProps {
   x: number;
@@ -27,27 +27,31 @@ interface BuildingProps {
 }
 
 function Building({ x, z, w, h, d, color, neon, label, sublabel, windows = true }: BuildingProps) {
-  const accent = neon ?? '#00e5ff';
+  const accent = neon ?? '#16d6ff';
+  // HDR neon color (>1 per channel) so the Bloom pass picks up the edges intensely.
+  const edgeColor = useMemo(() => new THREE.Color(accent).multiplyScalar(5.5), [accent]);
+  const edgeGeo = useMemo(() => new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, d)), [w, h, d]);
   return (
     <group position={[x, 0, z]}>
-      {/* main tower — clean matte pastel façade */}
+      {/* dark glassy tower — high metalness + low roughness reflects the night HDRI + neon */}
       <Box args={[w, h, d]} position={[0, h / 2, 0]} castShadow receiveShadow>
-        <meshStandardMaterial color={color} roughness={0.7} metalness={0.05} />
+        <meshStandardMaterial color={color} roughness={0.12} metalness={0.95} envMapIntensity={1.5} />
       </Box>
 
-      {/* art-deco painted trim band near the roof (Vice City accent stripe) */}
-      <Box args={[w + 0.12, 0.7, d + 0.12]} position={[0, h - 0.6, 0]}>
-        <meshStandardMaterial color={accent} roughness={0.5} metalness={0.1} />
-      </Box>
-      {/* slim glowing neon roofline */}
-      <Box args={[w + 0.16, 0.16, d + 0.16]} position={[0, h + 0.05, 0]}>
-        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={0.9} toneMapped={false} />
+      {/* HDR neon wireframe edges (LineBasicMaterial, color intensity > 1 for Bloom) */}
+      <lineSegments position={[0, h / 2, 0]} geometry={edgeGeo}>
+        <lineBasicMaterial color={edgeColor} toneMapped={false} />
+      </lineSegments>
+
+      {/* glowing neon roofline */}
+      <Box args={[w + 0.16, 0.18, d + 0.16]} position={[0, h + 0.06, 0]}>
+        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={3.2} toneMapped={false} />
       </Box>
 
-      {/* glass window bands on the front face */}
+      {/* dark emissive glass window band on the front face */}
       {windows && (
-        <Box args={[w * 0.82, h * 0.82, 0.06]} position={[0, h / 2, d / 2 + 0.05]}>
-          <meshStandardMaterial color="#bfe9ff" roughness={0.15} metalness={0.6} />
+        <Box args={[w * 0.82, h * 0.82, 0.05]} position={[0, h / 2, d / 2 + 0.04]}>
+          <meshStandardMaterial color="#04060f" emissive={accent} emissiveIntensity={0.35} metalness={0.85} roughness={0.2} toneMapped={false} />
         </Box>
       )}
 
@@ -70,27 +74,27 @@ function Building({ x, z, w, h, d, color, neon, label, sublabel, windows = true 
 function Car({ x, z, rot = 0, color }: { x: number; z: number; rot?: number; color: string }) {
   return (
     <group position={[x, 0, z]} rotation={[0, rot, 0]}>
-      {/* body */}
+      {/* body — glossy metallic paint that mirrors the night HDRI + neon */}
       <Box args={[1.8, 0.55, 4]} position={[0, 0.55, 0]} castShadow>
-        <meshStandardMaterial color={color} metalness={0.6} roughness={0.3} />
+        <meshStandardMaterial color={color} metalness={0.95} roughness={0.12} envMapIntensity={1.6} />
       </Box>
-      {/* cabin */}
+      {/* cabin glass */}
       <Box args={[1.6, 0.5, 2]} position={[0, 1.05, -0.2]} castShadow>
-        <meshStandardMaterial color="#10131c" metalness={0.4} roughness={0.2} />
+        <meshStandardMaterial color="#05070d" metalness={0.95} roughness={0.08} envMapIntensity={1.8} />
       </Box>
       {/* wheels */}
       {[[-0.85, 1.3], [0.85, 1.3], [-0.85, -1.3], [0.85, -1.3]].map(([wx, wz], i) => (
         <Cylinder key={i} args={[0.35, 0.35, 0.3, 12]} rotation={[0, 0, Math.PI / 2]} position={[wx, 0.35, wz]}>
-          <meshStandardMaterial color="#0a0a0a" />
+          <meshStandardMaterial color="#0a0a0a" metalness={0.5} roughness={0.4} />
         </Cylinder>
       ))}
-      {/* tail lights */}
+      {/* tail lights (HDR for bloom) */}
       <Box args={[1.6, 0.18, 0.1]} position={[0, 0.6, 2]}>
-        <meshStandardMaterial color="#ff1133" emissive="#ff1133" emissiveIntensity={2} toneMapped={false} />
+        <meshStandardMaterial color="#ff1133" emissive="#ff1133" emissiveIntensity={4} toneMapped={false} />
       </Box>
-      {/* head lights */}
+      {/* head lights (HDR for bloom) */}
       <Box args={[1.6, 0.18, 0.1]} position={[0, 0.6, -2]}>
-        <meshStandardMaterial color="#fff4cc" emissive="#fff4cc" emissiveIntensity={2} toneMapped={false} />
+        <meshStandardMaterial color="#fff4cc" emissive="#fff4cc" emissiveIntensity={4} toneMapped={false} />
       </Box>
     </group>
   );
@@ -135,7 +139,7 @@ function Road({ x, z, w, d, rot = 0 }: { x: number; z: number; w: number; d: num
     <group position={[x, 0, z]} rotation={[0, rot, 0]}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]} receiveShadow>
         <planeGeometry args={[w, d]} />
-        <meshStandardMaterial color="#41434c" roughness={1} />
+        <meshStandardMaterial color="#0b0b12" roughness={0.18} metalness={0.8} envMapIntensity={1.2} />
       </mesh>
       {/* center dashed line */}
       {Array.from({ length: Math.floor(d / 4) }).map((_, i) => (
@@ -192,7 +196,7 @@ export const FinancialCity: React.FC<FinancialCityProps> = ({ marketAssets }) =>
       const d = 5 + rand() * 6;
       blocks.push({
         x, z, w, h, d,
-        color: PASTEL[Math.floor(rand() * PASTEL.length)],
+        color: GLASS[Math.floor(rand() * GLASS.length)],
         neon: NEON[Math.floor(rand() * NEON.length)],
         windows: true,
       });
@@ -215,18 +219,50 @@ export const FinancialCity: React.FC<FinancialCityProps> = ({ marketAssets }) =>
     return list;
   }, []);
 
+  // Procedural glowing grid texture — repeating neon lines give a Tron floor and
+  // a strong sense of speed when moving. White lines become cyan via emissiveMap.
+  const gridTexture = useMemo(() => {
+    const px = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = px;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, px, px);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(0, 0, px, px);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px / 2, 0); ctx.lineTo(px / 2, px);
+    ctx.moveTo(0, px / 2); ctx.lineTo(px, px / 2);
+    ctx.stroke();
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(100, 100);
+    tex.anisotropy = 4;
+    return tex;
+  }, []);
+
   return (
     <group>
-      {/* ===================== GROUND ===================== */}
+      {/* ===================== GROUND (dark Tron grid floor) ===================== */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} receiveShadow>
         <planeGeometry args={[400, 400]} />
-        <meshStandardMaterial color="#7fb86b" roughness={1} />
+        <meshStandardMaterial
+          color="#04030a"
+          roughness={0.35}
+          metalness={0.6}
+          emissive="#16d6ff"
+          emissiveMap={gridTexture}
+          emissiveIntensity={1.4}
+          toneMapped={false}
+        />
       </mesh>
 
-      {/* City block sidewalks (light concrete) */}
+      {/* City block sidewalks (dark asphalt) */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.0, -10]} receiveShadow>
         <planeGeometry args={[120, 120]} />
-        <meshStandardMaterial color="#cfcabc" roughness={1} />
+        <meshStandardMaterial color="#0a0a12" roughness={0.7} metalness={0.3} />
       </mesh>
 
       {/* ===================== ROADS ===================== */}
@@ -247,15 +283,15 @@ export const FinancialCity: React.FC<FinancialCityProps> = ({ marketAssets }) =>
       {/* ===================== BEACH + OCEAN (Vice City) ===================== */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[78, 0.0, -8]} receiveShadow>
         <planeGeometry args={[40, 200]} />
-        <meshStandardMaterial color="#d9c79a" roughness={1} />
+        <meshStandardMaterial color="#2a2418" roughness={0.9} metalness={0.1} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[120, -0.3, -8]}>
         <planeGeometry args={[80, 240]} />
-        <meshStandardMaterial color="#0a4d6b" emissive="#0d6b94" emissiveIntensity={0.35} metalness={0.5} roughness={0.2} transparent opacity={0.92} />
+        <meshStandardMaterial color="#031c2c" emissive="#0a3a52" emissiveIntensity={0.5} metalness={0.9} roughness={0.08} envMapIntensity={1.4} transparent opacity={0.94} />
       </mesh>
 
       {/* ===================== LANDMARK: EXCHANGE (press T) ===================== */}
-      <Building x={0} z={-18} w={12} h={20} d={9} color="#bfeeff" neon="#16d6ff" label="QUANTLINK EXCHANGE" sublabel="◆ Press T to Trade ◆" />
+      <Building x={0} z={-18} w={12} h={20} d={9} color="#08121c" neon="#16d6ff" label="QUANTLINK EXCHANGE" sublabel="◆ Press T to Trade ◆" />
       {/* glowing entrance beam */}
       <Box args={[2, 22, 2]} position={[0, 11, -13]}>
         <meshStandardMaterial color="#00e5ff" emissive="#00e5ff" emissiveIntensity={2} toneMapped={false} transparent opacity={0.85} />
@@ -268,7 +304,7 @@ export const FinancialCity: React.FC<FinancialCityProps> = ({ marketAssets }) =>
       <pointLight position={[0, 6, -13]} intensity={40} distance={28} color="#00e5ff" />
 
       {/* ===================== LANDMARK: MENTOR HQ (press E) ===================== */}
-      <Building x={-18} z={12} w={9} h={14} d={8} color="#e8dcff" neon="#b06bff" label="SENIOR QUANT HQ" sublabel="◆ Press E for AI Mentor ◆" />
+      <Building x={-18} z={12} w={9} h={14} d={8} color="#140a1e" neon="#b06bff" label="SENIOR QUANT HQ" sublabel="◆ Press E for AI Mentor ◆" />
       <Float speed={1.6} floatIntensity={0.5}>
         <Billboard position={[-18, 17, 16]}>
           <Text fontSize={1.6} color="#b14bff" anchorX="center" outlineWidth={0.06} outlineColor="#000">🧠</Text>
@@ -277,16 +313,16 @@ export const FinancialCity: React.FC<FinancialCityProps> = ({ marketAssets }) =>
       <pointLight position={[-18, 6, 16]} intensity={35} distance={26} color="#b14bff" />
 
       {/* ===================== NAMED FINANCIAL TOWERS ===================== */}
-      <Building x={-15} z={-26} w={7} h={30} d={6} color="#cfe9ff" neon="#16d6ff" label="JPM TOWER" />
-      <Building x={15} z={-26} w={6} h={34} d={6} color="#d6f5dd" neon="#39e36b" label="NVIDIA HQ" />
-      <Building x={-26} z={-6} w={8} h={18} d={7} color="#fff1c9" neon="#ffd84d" label="CRYPTO VAULT" sublabel="BTC / ETH" />
-      <Building x={26} z={-6} w={7} h={22} d={6} color="#d6f5dd" neon="#39e36b" label="GREEN FUND" />
-      <Building x={-16} z={-44} w={9} h={11} d={8} color="#ffe9c2" neon="#ff9d3d" label="LUXURY MOTORS" sublabel="Buy Vehicles (Life tab)" />
-      <Building x={18} z={-44} w={8} h={9} d={7} color="#ffd9e6" neon="#ff5fa2" label="OCEAN PENTHOUSE" sublabel="Real Estate (Life tab)" />
-      <Building x={-30} z={26} w={8} h={8} d={7} color="#e8dcff" neon="#b06bff" label="VIP NIGHTCLUB" />
-      <Building x={30} z={24} w={10} h={7} d={12} color="#bfeeff" neon="#16d6ff" label="YACHT MARINA" />
-      <Building x={16} z={20} w={7} h={12} d={6} color="#ffd2c2" neon="#ff5fa2" label="HEDGE FUND" />
-      <Building x={-15} z={22} w={7} h={10} d={6} color="#fff1c9" neon="#ffd84d" label="OPTIONS DESK" />
+      <Building x={-15} z={-26} w={7} h={30} d={6} color="#08121c" neon="#16d6ff" label="JPM TOWER" />
+      <Building x={15} z={-26} w={6} h={34} d={6} color="#0a141c" neon="#39e36b" label="NVIDIA HQ" />
+      <Building x={-26} z={-6} w={8} h={18} d={7} color="#10101f" neon="#ffd400" label="CRYPTO VAULT" sublabel="BTC / ETH" />
+      <Building x={26} z={-6} w={7} h={22} d={6} color="#0a141c" neon="#39e36b" label="GREEN FUND" />
+      <Building x={-16} z={-44} w={9} h={11} d={8} color="#140a1e" neon="#ff7b2d" label="LUXURY MOTORS" sublabel="Buy Vehicles (Life tab)" />
+      <Building x={18} z={-44} w={8} h={9} d={7} color="#140a1e" neon="#ff2d95" label="OCEAN PENTHOUSE" sublabel="Real Estate (Life tab)" />
+      <Building x={-30} z={26} w={8} h={8} d={7} color="#0c0a1f" neon="#b06bff" label="VIP NIGHTCLUB" />
+      <Building x={30} z={24} w={10} h={7} d={12} color="#08121c" neon="#16d6ff" label="YACHT MARINA" />
+      <Building x={16} z={20} w={7} h={12} d={6} color="#140a1e" neon="#ff2d95" label="HEDGE FUND" />
+      <Building x={-15} z={22} w={7} h={10} d={6} color="#10101f" neon="#ffd400" label="OPTIONS DESK" />
 
       {/* Procedural skyline backdrop */}
       {skyline.map((b, i) => <Building key={`sky-${i}`} {...b} />)}

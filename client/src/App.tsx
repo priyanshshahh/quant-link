@@ -92,6 +92,12 @@ function App() {
   const [showTerminal, setShowTerminal] = useState(false);
   const [showMentor, setShowMentor] = useState(false);
   const [showQuests, setShowQuests] = useState(false);
+  const [demoCaption, setDemoCaption] = useState<string | null>(null);
+  const isDemo = useRef<boolean>(
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === '1'
+  ).current;
+  const demoStartedRef = useRef(false);
+  const handleJoinGameRef = useRef<(username: string, characterClass: string) => void>(() => {});
   const [nearBrokerage, setNearBrokerage] = useState(false);
   const [nearMentor, setNearMentor] = useState(false);
 
@@ -655,6 +661,98 @@ function App() {
     };
   }, [connected, localPlayer]);
 
+  // --- DEMO MODE (?demo=1): auto-join + scripted, captioned game tour ---
+  // Lets you just hit "record" — the game performs the whole walkthrough with
+  // on-screen captions, no manual driving or voiceover needed.
+  useEffect(() => {
+    if (!isDemo) return;
+    if (connected && !localPlayer && showJoinDialog) {
+      handleJoinGameRef.current('QuantLink Demo', 'Wizard');
+    }
+  }, [isDemo, connected, localPlayer, showJoinDialog]);
+
+  useEffect(() => {
+    if (!isDemo || !connected || !localPlayer || demoStartedRef.current) return;
+    demoStartedRef.current = true;
+
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const intervals: ReturnType<typeof setInterval>[] = [];
+    const input = currentInputRef.current;
+    const at = (ms: number, fn: () => void) => timers.push(setTimeout(fn, ms));
+    const caption = (text: string) => setDemoCaption(text);
+
+    const pickTicker = (): string => {
+      const assets = conn ? [...conn.db.market_asset.iter()] : [];
+      return assets.find((a) => a.ticker === 'NVDA')?.ticker || assets[0]?.ticker || 'NVDA';
+    };
+
+    // Gentle continuous camera pan for cinematic feel during the intro.
+    const startPan = () => {
+      const id = setInterval(() => { playerRotationRef.current.y += 0.0016; }, 16);
+      intervals.push(id);
+      return id;
+    };
+
+    // ---- TIMELINE ----
+    caption('QuantLink — a 3D quant-trading life-sim, built on SpacetimeDB');
+    const panId = startPan();
+
+    at(3500, () => caption('A living neon city where the market is a real multiplayer simulation'));
+
+    at(6500, () => {
+      clearInterval(panId);
+      caption('Walk to the QuantLink Exchange');
+      input.forward = true;
+      input.sprint = true;
+    });
+    at(10000, () => { input.forward = false; input.sprint = false; });
+
+    at(10500, () => { caption('Open the live trading terminal (T)'); setShowTerminal(true); });
+
+    at(13000, () => {
+      caption('Buy positions — prices are server-authoritative, shared by all players');
+      conn?.reducers.executeTrade({ ticker: pickTicker(), shares: 25, isBuy: true });
+    });
+
+    at(16500, () => {
+      caption('Type a prompt to remix the market — AI moves prices for everyone');
+      conn?.reducers.remixMarket({
+        ticker: 'NVDA',
+        driftModifier: 0.45,
+        volatilityModifier: 0.5,
+        headline: 'AI mania: institutional whales pile into NVDA as chip demand explodes',
+      });
+    });
+
+    at(20000, () => {
+      caption('Build your firm — hire a trading desk');
+      conn?.reducers.hireEmployee({ role: 'trader' });
+    });
+
+    at(23000, () => { caption('Career objectives turn the sandbox into a game (Q)'); setShowTerminal(false); setShowQuests(true); });
+
+    at(25500, () => {
+      caption('Claim server-validated rewards');
+      conn?.reducers.claimQuestReward({ questKey: 'first_trade' });
+    });
+
+    at(28500, () => { setShowQuests(false); caption('Climb the global, server-computed Rich List →'); });
+
+    at(31500, () => {
+      caption('QuantLink · real-time multiplayer · AI-driven markets · built solo on SpacetimeDB');
+      startPan();
+    });
+
+    at(36000, () => setDemoCaption(null));
+
+    return () => {
+      timers.forEach(clearTimeout);
+      intervals.forEach(clearInterval);
+      input.forward = false;
+      input.sprint = false;
+    };
+  }, [isDemo, connected, localPlayer]);
+
   // --- handleJoinGame ---
   const handleJoinGame = (username: string, characterClass: string) => {
     if (!conn) {
@@ -665,6 +763,7 @@ function App() {
     conn.reducers.registerPlayer({ username, characterClass });
     setShowJoinDialog(false);
   };
+  handleJoinGameRef.current = handleJoinGame;
 
   // --- Render Logic ---
   return (
@@ -711,6 +810,12 @@ function App() {
 
           <RichList entries={richList} localIdentity={identity} />
           <NewsTicker news={marketNews} />
+
+          {isDemo && demoCaption && (
+            <div className="demo-caption">
+              <span>{demoCaption}</span>
+            </div>
+          )}
 
           {localPlayer && !showTerminal && !showMentor && (
             <button className="quest-fab" onClick={() => setShowQuests((p) => !p)}>

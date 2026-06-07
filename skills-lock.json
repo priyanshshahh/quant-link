@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "skills": {
+    "cli": {
+      "source": "clockworklabs/spacetimedb",
+      "sourceType": "github",
+      "skillPath": "skills/cli/SKILL.md",
+      "computedHash": "0c70d6c525ff0922ad1ed2211cff9156c4afbdc0e2f0fcdee9bbf5136a76a1b6"
+    },
+    "concepts": {
+      "source": "clockworklabs/spacetimedb",
+      "sourceType": "github",
+      "skillPath": "skills/concepts/SKILL.md",
+      "computedHash": "960d5676170fd5e6045dc7bb0e4cf4d37ea6702630d5a91391b7d1ae9ae44f3c"
+    },
+    "cpp-server": {
+      "source": "clockworklabs/spacetimedb",
+      "sourceType": "github",
+      "skillPath": "skills/cpp-server/SKILL.md",
+      "computedHash": "490508c670be4d7be921fa43411f6964f8694c4a504fba68f99a4023e4450317"
+    },
+    "csharp-client": {
+      "source": "clockworklabs/spacetimedb",
+      "sourceType": "github",
+      "skillPath": "skills/csharp-client/SKILL.md",
+      "computedHash": "e9d73d53230a40176d75f2290c1682cb96b3bb52123bd6af9b50320058dbfc1f"
+    },
+    "csharp-server": {
+      "source": "clockworklabs/spacetimedb",
+      "sourceType": "github",
+      "skillPath": "skills/csharp-server/SKILL.md",
+      "computedHash": "c83d95f2e55424443fe171af198b67962ea3a38ac75a44f125185dd9f4a64447"
+    },
+    "rust-server": {
+      "source": "clockworklabs/spacetimedb",
+      "sourceType": "github",
+      "skillPath": "skills/rust-server/SKILL.md",
+      "computedHash": "c6d36ebd5fd778e9b5dadad5987b5b0d26ab47b8755bcc5259fd90fd8dbaf55d"
+    },
+    "spacetimedb": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb/SKILL.md",
+      "computedHash": "72dd7b6b19b454f67d51bdfdc68104640581b3a95d7a50a3ffc4dfcb43a617b6"
+    },
+    "spacetimedb-auth": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-auth/SKILL.md",
+      "computedHash": "b6f193485adaf54c19e94066edfb09d99b8b946daa7ca8573d85fac49e6a11bd"
+    },
+    "spacetimedb-cli": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-cli/SKILL.md",
+      "computedHash": "62b09b01c27e27b66615725e4cbbbf2146830397bfe456eac3d3239ed682fc1e"
+    },
+    "spacetimedb-client-c-sharp": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-client-c-sharp/SKILL.md",
+      "computedHash": "37b0af73be76755ebd135fb5505142e93ca5e4038c6ebe6c49caac83357010d8"
+    },
+    "spacetimedb-client-rust": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-client-rust/SKILL.md",
+      "computedHash": "3213263039b75373466d45c075341823eb74f3eecb6a1283cb03b91bbef34f85"
+    },
+    "spacetimedb-client-typescript": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-client-typescript/SKILL.md",
+      "computedHash": "3326a42a85854d669788787f5ce0cea2e417a75d06965a76971f7d906d67cc38"
+    },
+    "spacetimedb-client-unreal": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-client-unreal/SKILL.md",
+      "computedHash": "4f9c11624ab5a6997ffc3c168fd299840c4371e42ed128337cc2910ac371ff18"
+    },
+    "spacetimedb-clients": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-clients/SKILL.md",
+      "computedHash": "e8f98a7d464a7340f65658f53a8ce6955c0c8d062f00e34fa1737469161d216c"
+    },
+    "spacetimedb-databases": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-databases/SKILL.md",
+      "computedHash": "938e7552b333d03a7185aa0fd78c607d244b6670f34a7cc4751edc4feb4d519f"
+    },
+    "spacetimedb-deploy": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-deploy/SKILL.md",
+      "computedHash": "e0621284e8de3172696b8f300e83775eb012801f2eec0057b35e7ef346b76f3f"
+    },
+    "spacetimedb-http": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-http/SKILL.md",
+      "computedHash": "a1f67e42b2f3b4b0fa5da307a9ac684f2d16a0f59cf82f39c79bcb9acc7b4004"
+    },
+    "spacetimedb-procedures": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-procedures/SKILL.md",
+      "computedHash": "8a95cefc4c1a7dfc4689a8304d79699f16c85acfc0c93a0a6b99b88d21a89772"
+    },
+    "spacetimedb-quickstarts": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-quickstarts/SKILL.md",
+      "computedHash": "7927fa710e0311b370fa1be1d6dbb2ab1f4eb1ae366b24043a1a3698f4a92c4d"
+    },
+    "spacetimedb-reducers": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-reducers/SKILL.md",
+      "computedHash": "7138e805a21c379ecc796381f9ea98e154ef410896c1679b4ff8f0793728733f"
+    },
+    "spacetimedb-serialization": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-serialization/SKILL.md",
+      "computedHash": "f4f15bf797e4527f6f8bcfb46bc1e2b422259f919741d481b81f63dc2bb86d05"
+    },
+    "spacetimedb-sql": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-sql/SKILL.md",
+      "computedHash": "5db4ba0484a6d2e67f338d18b38283a0c380335cf6c8948b20c3dcac136f4623"
+    },
+    "spacetimedb-tables": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-tables/SKILL.md",
+      "computedHash": "10da848bca489c71c988abc20928128a543e4d63654ce13d2af2c52c0c13873d"
+    },
+    "spacetimedb-tutorials": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-tutorials/SKILL.md",
+      "computedHash": "b16bedcfbca701699c2d48f3998a9ba07d40bc60d9ca0ee29cf572ab729fbddb"
+    },
+    "spacetimedb-upgrade": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-upgrade/SKILL.md",
+      "computedHash": "49a2597e2e9a996d41551b7c562cb3efa3e3bfd18b6bc6011920bdf711d71910"
+    },
+    "spacetimedb-views": {
+      "source": "DanMossa/spacetimedb-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spacetimedb-views/SKILL.md",
+      "computedHash": "b6debd21fcd74d81aa44a955e8171b43bac3a88cd84cdc822ad8b325ca5d767a"
+    },
+    "typescript-client": {
+      "source": "clockworklabs/spacetimedb",
+      "sourceType": "github",
+      "skillPath": "skills/typescript-client/SKILL.md",
+      "computedHash": "73a36dec0b1a9600b1b44f2efa7944432438573b7d254519d5154a28415071f1"
+    },
+    "typescript-server": {
+      "source": "clockworklabs/spacetimedb",
+      "sourceType": "github",
+      "skillPath": "skills/typescript-server/SKILL.md",
+      "computedHash": "46ad72d81306df660dc73f7c44b2115d2ae48210efaff2fa47e41e910d9ad3d0"
+    },
+    "unity": {
+      "source": "clockworklabs/spacetimedb",
+      "sourceType": "github",
+      "skillPath": "skills/unity/SKILL.md",
+      "computedHash": "45bacb0f07fa21fb3f8b1468d8f891250e2cfd524a56ac8f3c2c45246b7ef6ba"
+    },
+    "unreal": {
+      "source": "clockworklabs/spacetimedb",
+      "sourceType": "github",
+      "skillPath": "skills/unreal/SKILL.md",
+      "computedHash": "0ec22a7c22c855b685a9416ea3ac4c5d6ee2020fcef92f1e20a63b596e521f1d"
+    }
+  }
+}

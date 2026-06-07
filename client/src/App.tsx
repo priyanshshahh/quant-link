@@ -50,8 +50,24 @@ import { GameScene } from './components/GameScene';
 import { JoinGameDialog } from './components/JoinGameDialog';
 import * as THREE from 'three';
 import { PlayerUI } from './components/PlayerUI';
+import { TradingTerminal } from './components/TradingTerminal';
+import { MentorChat } from './components/MentorChat';
+import { GameHUD } from './components/GameHUD';
+import { MarketAsset, Portfolio, VehicleCatalog, FirmData, Employee, PropertyCatalog, OwnedProperty, RichListEntry, MarketNews } from './generated/types';
+import { RichList } from './components/RichList';
+import { NewsTicker } from './components/NewsTicker';
+import { QuestLog } from './components/QuestLog';
+import { generateMarketEvent } from './services/AI_Market_Events';
 
 let conn: DbConnection | null = null;
+
+const BROKERAGE_POS = { x: 0, z: -18 };
+const MENTOR_POS = { x: -18, z: 12 };
+const INTERACT_RADIUS = 10;
+
+function distance2D(ax: number, az: number, bx: number, bz: number) {
+  return Math.sqrt((ax - bx) ** 2 + (az - bz) ** 2);
+}
 
 function App() {
   const [connected, setConnected] = useState(false);
@@ -62,6 +78,22 @@ function App() {
   const [showJoinDialog, setShowJoinDialog] = useState(false);
   const [isDebugPanelExpanded, setIsDebugPanelExpanded] = useState(false);
   const [isPointerLocked, setIsPointerLocked] = useState(false);
+  const [marketAssets, setMarketAssets] = useState<MarketAsset[]>([]);
+  const [portfolio, setPortfolio] = useState<Portfolio[]>([]);
+  const [vehicleCatalog, setVehicleCatalog] = useState<VehicleCatalog[]>([]);
+  const [firm, setFirm] = useState<FirmData | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [propertyCatalog, setPropertyCatalog] = useState<PropertyCatalog[]>([]);
+  const [ownedProperties, setOwnedProperties] = useState<OwnedProperty[]>([]);
+  const [richList, setRichList] = useState<RichListEntry[]>([]);
+  const [marketNews, setMarketNews] = useState<MarketNews[]>([]);
+  const [completedQuests, setCompletedQuests] = useState<Set<string>>(new Set());
+  const [ownedVehicleCount, setOwnedVehicleCount] = useState(0);
+  const [showTerminal, setShowTerminal] = useState(false);
+  const [showMentor, setShowMentor] = useState(false);
+  const [showQuests, setShowQuests] = useState(false);
+  const [nearBrokerage, setNearBrokerage] = useState(false);
+  const [nearMentor, setNearMentor] = useState(false);
 
   // --- Refs for stable access in callbacks (avoid stale closures) ---
   const identityRef = useRef<Identity | null>(null);
@@ -120,6 +152,94 @@ function App() {
             setStatusMessage("Local player deleted!");
         }
     });
+    const syncMarket = () => {
+      if (!conn) return;
+      setMarketAssets([...conn.db.market_asset.iter()]);
+    };
+    const syncPortfolio = () => {
+      if (!conn || !identityRef.current) return;
+      const myId = identityRef.current.toHexString();
+      setPortfolio([...conn.db.portfolio.iter()].filter(
+        (p) => p.ownerIdentity.toHexString() === myId
+      ));
+    };
+    const syncVehicles = () => {
+      if (!conn) return;
+      setVehicleCatalog([...conn.db.vehicle_catalog.iter()]);
+    };
+    const syncFirm = () => {
+      if (!conn || !identityRef.current) return;
+      const myId = identityRef.current;
+      setFirm(conn.db.firm.owner_identity.find(myId) ?? null);
+      setEmployees([...conn.db.employee.iter()].filter((e) => e.ownerIdentity.toHexString() === myId.toHexString()));
+      setOwnedProperties([...conn.db.owned_property.iter()].filter((p) => p.ownerIdentity.toHexString() === myId.toHexString()));
+    };
+    const syncProperties = () => {
+      if (!conn) return;
+      setPropertyCatalog([...conn.db.property_catalog.iter()]);
+    };
+    const syncRichList = () => {
+      if (!conn) return;
+      setRichList([...conn.db.rich_list_view.iter()]);
+    };
+    const syncNews = () => {
+      if (!conn) return;
+      setMarketNews([...conn.db.market_news.iter()]);
+    };
+    const syncQuests = () => {
+      if (!conn || !identityRef.current) return;
+      const myId = identityRef.current.toHexString();
+      setCompletedQuests(
+        new Set(
+          [...conn.db.completed_quest.iter()]
+            .filter((q) => q.ownerIdentity.toHexString() === myId)
+            .map((q) => q.questKey)
+        )
+      );
+    };
+    const syncOwnedVehicles = () => {
+      if (!conn || !identityRef.current) return;
+      const myId = identityRef.current.toHexString();
+      setOwnedVehicleCount(
+        [...conn.db.owned_vehicle.iter()].filter(
+          (v) => v.ownerIdentity.toHexString() === myId
+        ).length
+      );
+    };
+
+    conn.db.market_asset.onInsert((_ctx, _row) => syncMarket());
+    conn.db.market_asset.onUpdate((_ctx, _old, _new) => syncMarket());
+    conn.db.market_asset.onDelete((_ctx, _row) => syncMarket());
+
+    conn.db.portfolio.onInsert((_ctx, _row) => syncPortfolio());
+    conn.db.portfolio.onUpdate((_ctx, _old, _new) => syncPortfolio());
+    conn.db.portfolio.onDelete((_ctx, _row) => syncPortfolio());
+
+    conn.db.vehicle_catalog.onInsert((_ctx, _row) => syncVehicles());
+    conn.db.vehicle_catalog.onUpdate((_ctx, _old, _new) => syncVehicles());
+
+    conn.db.firm.onInsert((_ctx, _row) => syncFirm());
+    conn.db.firm.onUpdate((_ctx, _old, _new) => syncFirm());
+    conn.db.employee.onInsert((_ctx, _row) => syncFirm());
+    conn.db.employee.onUpdate((_ctx, _old, _new) => syncFirm());
+    conn.db.employee.onDelete((_ctx, _row) => syncFirm());
+    conn.db.owned_property.onInsert((_ctx, _row) => syncFirm());
+    conn.db.owned_property.onDelete((_ctx, _row) => syncFirm());
+    conn.db.property_catalog.onInsert((_ctx, _row) => syncProperties());
+
+    conn.db.rich_list_view.onInsert((_ctx, _row) => syncRichList());
+    conn.db.rich_list_view.onUpdate((_ctx, _old, _new) => syncRichList());
+    conn.db.rich_list_view.onDelete((_ctx, _row) => syncRichList());
+
+    conn.db.market_news.onInsert((_ctx, _row) => syncNews());
+    conn.db.market_news.onDelete((_ctx, _row) => syncNews());
+
+    conn.db.completed_quest.onInsert((_ctx, _row) => syncQuests());
+    conn.db.completed_quest.onDelete((_ctx, _row) => syncQuests());
+
+    conn.db.owned_vehicle.onInsert((_ctx, _row) => syncOwnedVehicles());
+    conn.db.owned_vehicle.onDelete((_ctx, _row) => syncOwnedVehicles());
+
     console.log("Table callbacks registered.");
   }, []);
 
@@ -139,6 +259,32 @@ function App() {
          }
          return prev;
      });
+     if (conn) {
+      setMarketAssets([...conn.db.market_asset.iter()]);
+      setVehicleCatalog([...conn.db.vehicle_catalog.iter()]);
+      setPropertyCatalog([...conn.db.property_catalog.iter()]);
+      setRichList([...conn.db.rich_list_view.iter()]);
+      setMarketNews([...conn.db.market_news.iter()]);
+       if (identityRef.current) {
+         const myId = identityRef.current;
+         setPortfolio([...conn.db.portfolio.iter()].filter(
+           (p) => p.ownerIdentity.toHexString() === myId.toHexString()
+         ));
+         setFirm(conn.db.firm.owner_identity.find(myId) ?? null);
+        setEmployees([...conn.db.employee.iter()].filter((e) => e.ownerIdentity.toHexString() === myId.toHexString()));
+        setOwnedProperties([...conn.db.owned_property.iter()].filter((p) => p.ownerIdentity.toHexString() === myId.toHexString()));
+        setOwnedVehicleCount([...conn.db.owned_vehicle.iter()].filter((v) => v.ownerIdentity.toHexString() === myId.toHexString()).length);
+        setCompletedQuests(new Set([...conn.db.completed_quest.iter()].filter((q) => q.ownerIdentity.toHexString() === myId.toHexString()).map((q) => q.questKey)));
+
+        const existing = conn.db.player.identity.find(myId);
+         if (existing) {
+           setLocalPlayer(existing);
+           localPlayerRef.current = existing;
+           setShowJoinDialog(false);
+           setStatusMessage(`Welcome back, ${existing.username}`);
+         }
+       }
+     }
   }, []);
 
   const onSubscriptionError = useCallback((error: any) => {
@@ -152,7 +298,20 @@ function App() {
     conn.subscriptionBuilder()
       .onApplied(onSubscriptionApplied)
       .onError(onSubscriptionError)
-      .subscribe("SELECT * FROM player");
+      .subscribe([
+        "SELECT * FROM player",
+        "SELECT * FROM market_asset",
+        "SELECT * FROM portfolio",
+        "SELECT * FROM vehicle_catalog",
+        "SELECT * FROM owned_vehicle",
+        "SELECT * FROM firm",
+        "SELECT * FROM employee",
+        "SELECT * FROM property_catalog",
+        "SELECT * FROM owned_property",
+        "SELECT * FROM rich_list_view",
+        "SELECT * FROM market_news",
+        "SELECT * FROM completed_quest",
+      ]);
   }, [onSubscriptionApplied, onSubscriptionError]);
 
   // --- Event Handlers ---
@@ -243,13 +402,33 @@ function App() {
 
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
       if (event.repeat) return;
+
+      if (event.code === 'KeyT' && !showTerminal && !showMentor) {
+        setShowTerminal(true);
+        return;
+      }
+      if (event.code === 'KeyE' && !showMentor && !showTerminal) {
+        setShowMentor(true);
+        return;
+      }
+      if (event.code === 'KeyQ' && !showTerminal && !showMentor) {
+        setShowQuests((prev) => !prev);
+        return;
+      }
+      if (event.code === 'Escape') {
+        setShowTerminal(false);
+        setShowMentor(false);
+        setShowQuests(false);
+        return;
+      }
+
       const action = keyMap[event.code];
       if (action) {
           if (!currentInputRef.current[action]) {
              currentInputRef.current[action] = true;
           }
       }
-  }, []);
+  }, [nearBrokerage, nearMentor, showTerminal, showMentor]);
 
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
       const action = keyMap[event.code];
@@ -359,6 +538,17 @@ function App() {
       };
   }, [connected]);
 
+  useEffect(() => {
+    if (!localPlayer) {
+      setNearBrokerage(false);
+      setNearMentor(false);
+      return;
+    }
+    const { x, z } = localPlayer.position;
+    setNearBrokerage(distance2D(x, z, BROKERAGE_POS.x, BROKERAGE_POS.z) < INTERACT_RADIUS);
+    setNearMentor(distance2D(x, z, MENTOR_POS.x, MENTOR_POS.z) < INTERACT_RADIUS);
+  }, [localPlayer]);
+
   // --- Connection Effect Hook ---
   useEffect(() => {
     console.log("Running Connection Effect Hook...");
@@ -371,10 +561,15 @@ function App() {
         return;
     }
 
-    const dbHost = "localhost:3000";
-    const dbName = "vibe-multiplayer";
+    const dbHost = import.meta.env.VITE_SPACETIME_HOST ?? "maincloud.spacetimedb.com";
+    const dbName = import.meta.env.VITE_SPACETIME_DB ?? "quant-link";
+    const dbUri = dbHost.startsWith("ws")
+      ? dbHost
+      : dbHost.includes("spacetimedb.com")
+        ? `wss://${dbHost.replace(/^https?:\/\//, "")}`
+        : `ws://${dbHost.replace(/^https?:\/\//, "")}`;
 
-    console.log(`Connecting to SpacetimeDB at ${dbHost}, database: ${dbName}...`);
+    console.log(`Connecting to SpacetimeDB at ${dbUri}, database: ${dbName}...`);
 
     const onConnect = (connection: DbConnection, id: Identity, _token: string) => {
       console.log("Connected!");
@@ -388,7 +583,16 @@ function App() {
       subscribeToTables();
       setupInputListeners();
       setupDelegatedListeners();
-      setShowJoinDialog(true);
+
+      const existingPlayer = connection.db.player.identity.find(id);
+      if (existingPlayer) {
+        setLocalPlayer(existingPlayer);
+        localPlayerRef.current = existingPlayer;
+        setShowJoinDialog(false);
+        setStatusMessage(`Welcome back, ${existingPlayer.username}`);
+      } else {
+        setShowJoinDialog(true);
+      }
     };
 
     const onDisconnect = (_ctx: ErrorContext, reason?: Error | null) => {
@@ -406,7 +610,7 @@ function App() {
     };
 
     DbConnection.builder()
-      .withUri(`ws://${dbHost}`)
+      .withUri(dbUri)
       .withDatabaseName(dbName)
       .withConfirmedReads(false)
       .onConnect(onConnect)
@@ -419,6 +623,37 @@ function App() {
       removeDelegatedListeners();
     };
   }, []);
+
+  // --- AI Market Events Generator ---
+  // Drives the server-authoritative `apply_market_shock` reducer. A connected
+  // browser client periodically asks the AI (or offline simulator) for a
+  // breaking headline + sentiment, then broadcasts the shock to all traders.
+  useEffect(() => {
+    if (!connected || !localPlayer) return;
+
+    let cancelled = false;
+    const fireEvent = async () => {
+      if (cancelled || !conn) return;
+      try {
+        const event = await generateMarketEvent();
+        if (cancelled || !conn) return;
+        conn.reducers.applyMarketShock({ headline: event.headline, sentiment: event.sentiment });
+        console.log(`[AI Market Events] (${event.source}) ${event.headline} [${event.sentiment}]`);
+      } catch (err) {
+        console.warn('[AI Market Events] failed to apply shock:', err);
+      }
+    };
+
+    // Kick off one shortly after joining so the demo comes alive fast.
+    const initial = setTimeout(fireEvent, 8000);
+    const interval = setInterval(fireEvent, 60000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(initial);
+      clearInterval(interval);
+    };
+  }, [connected, localPlayer]);
 
   // --- handleJoinGame ---
   const handleJoinGame = (username: string, characterClass: string) => {
@@ -453,11 +688,95 @@ function App() {
           <GameScene
             players={players}
             localPlayerIdentity={identity}
+            marketAssets={marketAssets}
             onPlayerRotation={handlePlayerRotation}
             currentInputRef={currentInputRef}
             isDebugPanelVisible={isDebugPanelExpanded}
           />
-          {localPlayer && <PlayerUI playerData={localPlayer} />}
+          <GameHUD
+            marketAssets={marketAssets}
+            onOpenTerminal={() => setShowTerminal(true)}
+            onOpenMentor={() => setShowMentor(true)}
+            nearBrokerage={nearBrokerage}
+            nearMentor={nearMentor}
+          />
+          {localPlayer && (
+            <PlayerUI
+              playerData={localPlayer}
+              marketAssets={marketAssets}
+              portfolio={portfolio}
+              firm={firm}
+            />
+          )}
+
+          <RichList entries={richList} localIdentity={identity} />
+          <NewsTicker news={marketNews} />
+
+          {localPlayer && !showTerminal && !showMentor && (
+            <button className="quest-fab" onClick={() => setShowQuests((p) => !p)}>
+              🎯 Objectives
+              {(() => {
+                const ready = [
+                  portfolio.length >= 1 && !completedQuests.has('first_trade'),
+                  new Set(portfolio.map((p) => p.ticker)).size >= 3 && !completedQuests.has('diversify'),
+                  employees.length >= 1 && !completedQuests.has('first_hire'),
+                  employees.length >= 3 && !completedQuests.has('team_builder'),
+                  ownedProperties.length >= 1 && !completedQuests.has('property_mogul'),
+                  ownedVehicleCount >= 1 && !completedQuests.has('first_car'),
+                  localPlayer.knowledgeLevel >= 1 && !completedQuests.has('knowledge'),
+                  (firm?.tier ?? 0) >= 1 && !completedQuests.has('firm_upgrade'),
+                ].filter(Boolean).length;
+                return ready > 0 ? <span className="quest-fab-badge">{ready}</span> : null;
+              })()}
+            </button>
+          )}
+
+          {showQuests && conn && localPlayer && (
+            <QuestLog
+              conn={conn}
+              localPlayer={localPlayer}
+              marketAssets={marketAssets}
+              portfolio={portfolio}
+              employees={employees}
+              ownedProperties={ownedProperties}
+              ownedVehicleCount={ownedVehicleCount}
+              firm={firm}
+              claimedKeys={completedQuests}
+              onClose={() => setShowQuests(false)}
+            />
+          )}
+
+          {(nearBrokerage || nearMentor) && !showTerminal && !showMentor && (
+            <div className="proximity-hint">
+              {nearBrokerage && <span>Press <kbd>T</kbd> to open QuantLink Terminal</span>}
+              {nearBrokerage && nearMentor && <span> · </span>}
+              {nearMentor && <span>Press <kbd>E</kbd> to speak with Senior Quant</span>}
+            </div>
+          )}
+
+          {showTerminal && conn && localPlayer && (
+            <TradingTerminal
+              conn={conn}
+              localPlayer={localPlayer}
+              marketAssets={marketAssets}
+              portfolio={portfolio}
+              vehicleCatalog={vehicleCatalog}
+              firm={firm}
+              employees={employees}
+              propertyCatalog={propertyCatalog}
+              ownedProperties={ownedProperties}
+              onClose={() => setShowTerminal(false)}
+            />
+          )}
+
+          {showMentor && localPlayer && (
+            <MentorChat
+              localPlayer={localPlayer}
+              portfolio={portfolio}
+              marketAssets={marketAssets}
+              onClose={() => setShowMentor(false)}
+            />
+          )}
         </>
       )}
 

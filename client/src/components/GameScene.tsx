@@ -6,28 +6,30 @@
 
 import React, { useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { Box, Plane, Grid, Sky } from '@react-three/drei';
+import { Sky, Cloud, Clouds } from '@react-three/drei';
 import * as THREE from 'three';
-import { DirectionalLightHelper, CameraHelper } from 'three'; // Import the helper
-// Import generated types
-import { PlayerData, InputState } from '../generated/types';
+import { DirectionalLightHelper, CameraHelper } from 'three';
+import { PlayerData, InputState, MarketAsset } from '../generated/types';
 import { Identity } from 'spacetimedb';
 import { Player } from './Player';
+import { FinancialCity } from './FinancialCity';
 
 interface GameSceneProps {
-  players: ReadonlyMap<string, PlayerData>; // Receive the map
+  players: ReadonlyMap<string, PlayerData>;
   localPlayerIdentity: Identity | null;
-  onPlayerRotation?: (rotation: THREE.Euler) => void; // Optional callback for player rotation
-  currentInputRef?: React.MutableRefObject<InputState>; // Add input state ref prop
-  isDebugPanelVisible?: boolean; // Prop to indicate if the debug panel is visible
+  marketAssets: MarketAsset[];
+  onPlayerRotation?: (rotation: THREE.Euler) => void;
+  currentInputRef?: React.MutableRefObject<InputState>;
+  isDebugPanelVisible?: boolean;
 }
 
 export const GameScene: React.FC<GameSceneProps> = ({ 
   players, 
   localPlayerIdentity,
+  marketAssets,
   onPlayerRotation,
-  currentInputRef, // Receive input state ref
-  isDebugPanelVisible = false // Destructure the new prop
+  currentInputRef,
+  isDebugPanelVisible = false,
 }) => {
   // Ref for the main directional light
   const directionalLightRef = useRef<THREE.DirectionalLight>(null!); 
@@ -36,33 +38,43 @@ export const GameScene: React.FC<GameSceneProps> = ({
     <Canvas 
       camera={{ position: [0, 10, 20], fov: 60 }} 
       style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1 }} 
-      shadows // Enable shadows
+      shadows
     >
-      {/* Remove solid color background */}
-      {/* <color attach="background" args={['#add8e6']} /> */}
-      
-      {/* Add Sky component */}
-      <Sky distance={450000} sunPosition={[5, 1, 8]} inclination={0} azimuth={0.25} />
+      {/* Bright Miami daytime sky — sun high for clear, vibrant lighting */}
+      <Sky distance={450000} sunPosition={[60, 35, 20]} inclination={0.49} azimuth={0.25} mieCoefficient={0.004} mieDirectionalG={0.8} rayleigh={1.1} turbidity={6} />
+      <fog attach="fog" args={['#aee4ff', 160, 420]} />
+      <color attach="background" args={['#9fd8ff']} />
 
-      {/* Ambient light for general scene illumination */}
-      <ambientLight intensity={0.5} />
-      
-      {/* Main directional light with improved shadow settings */}
+      {/* Soft drifting clouds for a sunny coastal feel */}
+      <Clouds material={THREE.MeshBasicMaterial} limit={40}>
+        <Cloud seed={1} segments={28} bounds={[60, 6, 30]} volume={14} color="#ffffff" opacity={0.55} position={[-30, 55, -40]} speed={0.15} />
+        <Cloud seed={9} segments={24} bounds={[50, 5, 28]} volume={12} color="#eef6ff" opacity={0.5} position={[40, 62, -20]} speed={0.12} />
+      </Clouds>
+
+      {/* Strong, even daylight so every surface is clearly readable and colorful */}
+      <ambientLight intensity={1.15} color="#ffffff" />
+      <hemisphereLight args={['#bfe6ff', '#d9c39a', 1.25]} />
+
+      {/* Warm sun key light with crisp shadows */}
       <directionalLight 
-        ref={directionalLightRef} // Assign ref
-        position={[15, 20, 10]} 
-        intensity={2.5} 
+        ref={directionalLightRef}
+        position={[40, 55, 25]} 
+        color="#fff3da"
+        intensity={2.6} 
         castShadow 
-        shadow-mapSize-width={2048} // Increased resolution
-        shadow-mapSize-height={2048} // Increased resolution
-        shadow-bias={-0.0001} // Made bias less negative (closer to 0)
-        shadow-camera-left={-30} // Wider frustum
-        shadow-camera-right={30}
-        shadow-camera-top={30}
-        shadow-camera-bottom={-30}
-        shadow-camera-near={0.1} // Closer near plane
-        shadow-camera-far={100} // Further far plane
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-bias={-0.0001}
+        shadow-camera-left={-60}
+        shadow-camera-right={60}
+        shadow-camera-top={60}
+        shadow-camera-bottom={-60}
+        shadow-camera-near={0.1}
+        shadow-camera-far={200}
       />
+
+      {/* Cool sky bounce fill from the opposite side */}
+      <directionalLight position={[-30, 20, -18]} color="#bfe6ff" intensity={0.55} />
 
       {/* Conditionally render Light and Shadow Camera Helpers */}
       {isDebugPanelVisible && directionalLightRef.current && (
@@ -73,24 +85,7 @@ export const GameScene: React.FC<GameSceneProps> = ({
         </>
       )}
       
-      {/* Visible Background Plane (darker, receives shadows) */}
-      <Plane 
-        args={[200, 200]} 
-        rotation={[-Math.PI / 2, 0, 0]} 
-        position={[0, -0.001, 0]} 
-        receiveShadow={true} 
-      >
-        <meshStandardMaterial color="#606060" /> { /* Changed to darker gray */ }
-      </Plane>
-
-      {/* Simplified Grid Helper (mid-gray lines) */}
-      <Grid 
-        position={[0, 0, 0]} 
-        args={[200, 200]} 
-        cellSize={2} 
-        cellThickness={1}
-        cellColor={new THREE.Color('#888888')} // Mid-gray grid lines
-      />
+      <FinancialCity marketAssets={marketAssets} />
 
       {/* Render Players */}
       {Array.from(players.values()).map((player) => {

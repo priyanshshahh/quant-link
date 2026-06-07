@@ -1,47 +1,13 @@
-/**
- * Vibe Coding Starter Pack: 3D Multiplayer - lib.rs
- * 
- * Main entry point for the SpacetimeDB module. This file contains:
- * 
- * 1. Database Schema:
- *    - PlayerData: Active player information
- *    - LoggedOutPlayerData: Persistent data for disconnected players
- *    - GameTickSchedule: Periodic update scheduling
- * 
- * 2. Reducer Functions (Server Endpoints):
- *    - init: Module initialization and game tick scheduling
- *    - identity_connected/disconnected: Connection lifecycle management
- *    - register_player: Player registration with username and character class
- *    - update_player_input: Processes player movement and state updates
- *    - game_tick: Periodic update for game state (scheduled)
- * 
- * 3. Table Structure:
- *    - All tables use Identity as primary keys where appropriate
- *    - Connection between tables maintained through identity references
- * 
- * When modifying:
- *    - Table changes require regenerating TypeScript bindings
- *    - Add `public` tag to tables that need client access
- *    - New reducers should follow naming convention and error handling patterns
- *    - Game logic should be placed in separate modules (like player_logic.rs)
- *    - Extend game_tick for gameplay systems that need periodic updates
- * 
- * Related files:
- *    - common.rs: Shared data structures used in table definitions
- *    - player_logic.rs: Player movement and state update calculations
- */
-
-// Declare modules
 mod common;
+mod firm_logic;
+mod market_logic;
 mod player_logic;
+mod quest_logic;
 
-use spacetimedb::{ReducerContext, Identity, Table, Timestamp, ScheduleAt};
-use std::time::Duration; // Import standard Duration
+use spacetimedb::{AnonymousViewContext, Identity, ReducerContext, ScheduleAt, Table, Timestamp};
+use std::time::Duration;
 
-// Use items from common module (structs are needed for table definitions)
-use crate::common::{Vector3, InputState};
-
-// --- Schema Definitions ---
+use crate::common::{InputState, Vector3};
 
 #[spacetimedb::table(accessor = player, public)]
 #[derive(Clone)]
@@ -64,6 +30,8 @@ pub struct PlayerData {
     last_input_seq: u32,
     input: InputState,
     color: String,
+    cash_balance: f64,
+    knowledge_level: u32,
 }
 
 #[spacetimedb::table(accessor = logged_out_player)]
@@ -80,6 +48,8 @@ pub struct LoggedOutPlayerData {
     mana: i32,
     max_mana: i32,
     last_seen: Timestamp,
+    cash_balance: f64,
+    knowledge_level: u32,
 }
 
 #[spacetimedb::table(accessor = game_tick_schedule, public, scheduled(game_tick))]
@@ -90,42 +60,229 @@ pub struct GameTickSchedule {
     scheduled_at: ScheduleAt,
 }
 
-// --- Lifecycle Reducers ---
+#[spacetimedb::table(accessor = market_asset, public)]
+#[derive(Clone)]
+pub struct MarketAsset {
+    #[primary_key]
+    ticker: String,
+    company_name: String,
+    current_price: f64,
+    previous_price: f64,
+    volatility: f64,
+    drift: f64,
+}
+
+/// AI-generated market news feed (server-authoritative so every client sees
+/// the same headlines). Written by the `apply_market_shock` reducer.
+#[spacetimedb::table(accessor = market_news, public)]
+#[derive(Clone)]
+pub struct MarketNews {
+    #[primary_key]
+    #[auto_inc]
+    news_id: u64,
+    headline: String,
+    sentiment: i32,
+    created_at: Timestamp,
+}
+
+#[spacetimedb::table(
+    accessor = portfolio,
+    public,
+    index(accessor = by_owner, btree(columns = [owner_identity]))
+)]
+#[derive(Clone)]
+pub struct Portfolio {
+    #[primary_key]
+    #[auto_inc]
+    position_id: u64,
+    owner_identity: Identity,
+    ticker: String,
+    shares: f64,
+    average_entry_price: f64,
+}
+
+#[spacetimedb::table(accessor = market_tick_schedule, scheduled(process_market_tick))]
+pub struct MarketTickSchedule {
+    #[primary_key]
+    #[auto_inc]
+    scheduled_id: u64,
+    scheduled_at: ScheduleAt,
+}
+
+#[spacetimedb::table(accessor = vehicle_catalog, public)]
+#[derive(Clone)]
+pub struct VehicleCatalog {
+    #[primary_key]
+    vehicle_key: String,
+    display_name: String,
+    price: f64,
+    model_url: String,
+}
+
+#[spacetimedb::table(
+    accessor = owned_vehicle,
+    public,
+    index(accessor = by_owner, btree(columns = [owner_identity]))
+)]
+#[derive(Clone)]
+pub struct OwnedVehicle {
+    #[primary_key]
+    #[auto_inc]
+    vehicle_id: u64,
+    owner_identity: Identity,
+    vehicle_key: String,
+    display_name: String,
+    model_url: String,
+    spawn_x: f32,
+    spawn_z: f32,
+}
+
+#[spacetimedb::table(accessor = firm, public)]
+#[derive(Clone)]
+pub struct FirmData {
+    #[primary_key]
+    owner_identity: Identity,
+    firm_name: String,
+    tier: u32,
+    reputation: f64,
+    aum: f64,
+    regulatory_risk: f64,
+    total_profit: f64,
+}
+
+#[spacetimedb::table(
+    accessor = employee,
+    public,
+    index(accessor = by_owner, btree(columns = [owner_identity]))
+)]
+#[derive(Clone)]
+pub struct Employee {
+    #[primary_key]
+    #[auto_inc]
+    employee_id: u64,
+    owner_identity: Identity,
+    role: String,
+    name: String,
+    salary_per_tick: f64,
+    alpha_bonus: f64,
+}
+
+#[spacetimedb::table(accessor = property_catalog, public)]
+#[derive(Clone)]
+pub struct PropertyCatalog {
+    #[primary_key]
+    property_key: String,
+    display_name: String,
+    price: f64,
+    property_type: String,
+    firm_tier_required: u32,
+    rent_per_tick: f64,
+    reputation_bonus: f64,
+}
+
+#[spacetimedb::table(
+    accessor = owned_property,
+    public,
+    index(accessor = by_owner, btree(columns = [owner_identity]))
+)]
+#[derive(Clone)]
+pub struct OwnedProperty {
+    #[primary_key]
+    #[auto_inc]
+    property_id: u64,
+    owner_identity: Identity,
+    property_key: String,
+    display_name: String,
+    property_type: String,
+}
+
+/// Tracks which career objectives a player has already claimed, so rewards can
+/// only be granted once. The condition for each quest is re-validated
+/// server-side in `quest_logic::claim_quest_reward` before payout.
+#[spacetimedb::table(
+    accessor = completed_quest,
+    public,
+    index(accessor = by_owner, btree(columns = [owner_identity]))
+)]
+#[derive(Clone)]
+pub struct CompletedQuest {
+    #[primary_key]
+    #[auto_inc]
+    record_id: u64,
+    owner_identity: Identity,
+    quest_key: String,
+    claimed_at: Timestamp,
+}
+
+/// Server-computed leaderboard. The game tick reducer ranks every player by
+/// net worth (cash + live portfolio value) and writes the top 5 here. Rank is
+/// the primary key (1 = richest), so it is an indexed lookup the view can read.
+#[spacetimedb::table(accessor = rich_list, public)]
+#[derive(Clone)]
+pub struct RichListEntry {
+    #[primary_key]
+    rank: u32,
+    identity: Identity,
+    username: String,
+    firm_name: String,
+    net_worth: f64,
+    tier: u32,
+}
+
+/// Public, read-only view returning the global top-5 "Rich List".
+///
+/// Views may not use `.iter()` — only indexed lookups — so we read the
+/// pre-ranked `rich_list` rows by their primary key (rank 1..=5). The ranking
+/// itself is computed in the `game_tick` reducer, which is allowed to iterate.
+#[spacetimedb::view(accessor = rich_list_view, public)]
+fn rich_list_view(ctx: &AnonymousViewContext) -> Vec<RichListEntry> {
+    let mut out = Vec::new();
+    for rank in 1u32..=5 {
+        if let Some(entry) = ctx.db.rich_list().rank().find(rank) {
+            out.push(entry);
+        }
+    }
+    out
+}
 
 #[spacetimedb::reducer(init)]
 pub fn init(ctx: &ReducerContext) -> Result<(), String> {
-    spacetimedb::log::info!("[INIT] Initializing Vibe Multiplayer module...");
+    spacetimedb::log::info!("[INIT] Initializing QuantLink financial metropolis...");
+
     if ctx.db.game_tick_schedule().count() == 0 {
-        spacetimedb::log::info!("[INIT] Scheduling initial game tick (every 1 second)...");
-        let loop_duration = Duration::from_secs(1);
-        let schedule = GameTickSchedule {
+        ctx.db.game_tick_schedule().insert(GameTickSchedule {
             scheduled_id: 0,
-            scheduled_at: ScheduleAt::Interval(loop_duration.into()),
-        };
-        match ctx.db.game_tick_schedule().try_insert(schedule) {
-            Ok(row) => spacetimedb::log::info!("[INIT] Game tick schedule inserted successfully. ID: {}", row.scheduled_id),
-            Err(e) => spacetimedb::log::error!("[INIT] FAILED to insert game tick schedule: {}", e),
-        }
-    } else {
-        spacetimedb::log::info!("[INIT] Game tick already scheduled.");
+            scheduled_at: ScheduleAt::Interval(Duration::from_secs(1).into()),
+        });
     }
+
+    market_logic::seed_market_assets(ctx);
+    market_logic::seed_vehicle_catalog(ctx);
+    firm_logic::seed_property_catalog(ctx);
+    market_logic::schedule_market_tick(ctx);
+
     Ok(())
 }
 
 #[spacetimedb::reducer(client_connected)]
 pub fn identity_connected(ctx: &ReducerContext) {
-    spacetimedb::log::info!("Client connected: {}", ctx.sender());
-    // Player registration/re-joining happens in register_player reducer called by client
+    spacetimedb::log::info!("Trader connected: {}", ctx.sender());
+    market_logic::seed_market_assets(ctx);
+    market_logic::seed_vehicle_catalog(ctx);
+    market_logic::repair_market_prices(ctx);
+    firm_logic::seed_property_catalog(ctx);
+
+    if let Some(player) = ctx.db.player().identity().find(ctx.sender()) {
+        firm_logic::ensure_firm(ctx, ctx.sender(), &player.username);
+    }
 }
 
 #[spacetimedb::reducer(client_disconnected)]
 pub fn identity_disconnected(ctx: &ReducerContext) {
-    let player_identity: Identity = ctx.sender();
-    spacetimedb::log::info!("Client disconnected: {}", player_identity);
-    let logout_time: Timestamp = ctx.timestamp;
+    let player_identity = ctx.sender();
+    let logout_time = ctx.timestamp;
 
     if let Some(player) = ctx.db.player().identity().find(player_identity) {
-        spacetimedb::log::info!("Moving player {} to logged_out_player table.", player_identity);
         let logged_out_player = LoggedOutPlayerData {
             identity: player.identity,
             username: player.username.clone(),
@@ -137,50 +294,57 @@ pub fn identity_disconnected(ctx: &ReducerContext) {
             mana: player.mana,
             max_mana: player.max_mana,
             last_seen: logout_time,
+            cash_balance: player.cash_balance,
+            knowledge_level: player.knowledge_level,
         };
         ctx.db.logged_out_player().insert(logged_out_player);
         ctx.db.player().identity().delete(player_identity);
-    } else {
-        spacetimedb::log::warn!("Disconnect by player {} not found in active player table.", player_identity);
-        if let Some(mut logged_out_player) = ctx.db.logged_out_player().identity().find(player_identity) {
-            logged_out_player.last_seen = logout_time;
-            ctx.db.logged_out_player().identity().update(logged_out_player);
-            spacetimedb::log::warn!("Updated last_seen for already logged out player {}.", player_identity);
-        }
+    } else if let Some(mut logged_out_player) = ctx
+        .db
+        .logged_out_player()
+        .identity()
+        .find(player_identity)
+    {
+        logged_out_player.last_seen = logout_time;
+        ctx.db.logged_out_player().identity().update(logged_out_player);
     }
 }
 
-// --- Game Specific Reducers ---
-
 #[spacetimedb::reducer]
 pub fn register_player(ctx: &ReducerContext, username: String, character_class: String) {
-    let player_identity: Identity = ctx.sender();
-    spacetimedb::log::info!(
-        "Registering player {} ({}) with class {}",
-        username,
-        player_identity,
-        character_class
-    );
+    let player_identity = ctx.sender();
 
     if ctx.db.player().identity().find(player_identity).is_some() {
-        spacetimedb::log::warn!("Player {} is already active.", player_identity);
         return;
     }
 
-    // Assign color and position based on current player count
     let player_count = ctx.db.player().iter().count();
     let colors = ["cyan", "magenta", "yellow", "lightgreen", "white", "orange"];
     let assigned_color = colors[player_count % colors.len()].to_string();
-    // Simple horizontal offset for spawning, start Y at 1.0
-    let spawn_position = Vector3 { x: (player_count as f32 * 5.0) - 2.5, y: 1.0, z: 0.0 };
+    let spawn_position = Vector3 {
+        x: (player_count as f32 * 4.0) - 2.0,
+        y: 1.0,
+        z: 8.0,
+    };
 
-    if let Some(logged_out_player) = ctx.db.logged_out_player().identity().find(player_identity) {
-        spacetimedb::log::info!("Player {} is rejoining.", player_identity);
-        let default_input = InputState {
-            forward: false, backward: false, left: false, right: false,
-            sprint: false, jump: false, attack: false, cast_spell: false,
-            sequence: 0
-        };
+    let default_input = InputState {
+        forward: false,
+        backward: false,
+        left: false,
+        right: false,
+        sprint: false,
+        jump: false,
+        attack: false,
+        cast_spell: false,
+        sequence: 0,
+    };
+
+    if let Some(logged_out_player) = ctx
+        .db
+        .logged_out_player()
+        .identity()
+        .find(player_identity)
+    {
         let rejoining_player = PlayerData {
             identity: logged_out_player.identity,
             username: logged_out_player.username.clone(),
@@ -199,22 +363,24 @@ pub fn register_player(ctx: &ReducerContext, username: String, character_class: 
             last_input_seq: 0,
             input: default_input,
             color: assigned_color,
+            cash_balance: logged_out_player.cash_balance,
+            knowledge_level: logged_out_player.knowledge_level,
         };
         ctx.db.player().insert(rejoining_player);
+        firm_logic::ensure_firm(ctx, player_identity, &logged_out_player.username);
         ctx.db.logged_out_player().identity().delete(player_identity);
     } else {
-        spacetimedb::log::info!("Registering new player {}.", player_identity);
-        let default_input = InputState {
-            forward: false, backward: false, left: false, right: false,
-            sprint: false, jump: false, attack: false, cast_spell: false,
-            sequence: 0
-        };
+        let firm_name = username.clone();
         ctx.db.player().insert(PlayerData {
             identity: player_identity,
             username,
             character_class,
             position: spawn_position,
-            rotation: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+            rotation: Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
             health: 100,
             max_health: 100,
             mana: 100,
@@ -227,7 +393,10 @@ pub fn register_player(ctx: &ReducerContext, username: String, character_class: 
             last_input_seq: 0,
             input: default_input,
             color: assigned_color,
+            cash_balance: market_logic::default_cash(),
+            knowledge_level: 0,
         });
+        firm_logic::ensure_firm(ctx, player_identity, &firm_name);
     }
 }
 
@@ -242,17 +411,88 @@ pub fn update_player_input(
     if let Some(mut player) = ctx.db.player().identity().find(ctx.sender()) {
         player_logic::update_input_state(&mut player, input, client_rot, client_animation);
         ctx.db.player().identity().update(player);
-    } else {
-        spacetimedb::log::warn!("Player {} tried to update input but is not active.", ctx.sender());
     }
 }
 
 #[spacetimedb::reducer(update)]
 pub fn game_tick(ctx: &ReducerContext, _tick_info: GameTickSchedule) {
-    // Just use a simple log message without timestamp conversion
-    let delta_time = 1.0; // Fixed 1-second tick for simplicity
-    
-    player_logic::update_players_logic(ctx, delta_time);
-    
-    spacetimedb::log::debug!("Game tick completed");
+    player_logic::update_players_logic(ctx, 1.0);
+    firm_logic::process_firm_tick(ctx);
+    firm_logic::update_rich_list(ctx);
+}
+
+#[spacetimedb::reducer(update)]
+pub fn process_market_tick(ctx: &ReducerContext, tick_info: MarketTickSchedule) {
+    let seed = tick_info.scheduled_id.wrapping_mul(0xDEAD_BEEF);
+    market_logic::process_market_tick(ctx, seed);
+}
+
+#[spacetimedb::reducer]
+pub fn execute_trade(
+    ctx: &ReducerContext,
+    ticker: String,
+    shares: f64,
+    is_buy: bool,
+) -> Result<(), String> {
+    if is_buy {
+        market_logic::execute_buy(ctx, ticker, shares)
+    } else {
+        market_logic::execute_sell(ctx, ticker, shares)
+    }
+}
+
+#[spacetimedb::reducer]
+pub fn buy_vehicle(ctx: &ReducerContext, vehicle_key: String) -> Result<(), String> {
+    market_logic::buy_vehicle(ctx, vehicle_key)
+}
+
+#[spacetimedb::reducer]
+pub fn upgrade_knowledge_level(ctx: &ReducerContext) -> Result<(), String> {
+    market_logic::upgrade_knowledge(ctx)
+}
+
+#[spacetimedb::reducer]
+pub fn hire_employee(ctx: &ReducerContext, role: String) -> Result<(), String> {
+    firm_logic::hire_employee(ctx, role)
+}
+
+#[spacetimedb::reducer]
+pub fn buy_property(ctx: &ReducerContext, property_key: String) -> Result<(), String> {
+    firm_logic::buy_property(ctx, property_key)
+}
+
+#[spacetimedb::reducer]
+pub fn upgrade_firm(ctx: &ReducerContext) -> Result<(), String> {
+    firm_logic::upgrade_firm(ctx)
+}
+
+/// Claim the cash reward for a completed career objective. The server
+/// re-validates that the objective is actually met and that it has not been
+/// claimed before, so the reward is fully authoritative.
+#[spacetimedb::reducer]
+pub fn claim_quest_reward(ctx: &ReducerContext, quest_key: String) -> Result<(), String> {
+    quest_logic::claim_quest_reward(ctx, quest_key)
+}
+
+/// Apply an AI-generated market event. `sentiment` ranges from -10 (crash) to
+/// +10 (rally). The event is recorded to the public `market_news` feed and
+/// instantly jolts every asset's price + volatility so all connected traders
+/// must react in real time.
+#[spacetimedb::reducer]
+pub fn apply_market_shock(ctx: &ReducerContext, headline: String, sentiment: i32) {
+    market_logic::apply_market_shock(ctx, headline, sentiment);
+}
+
+/// Prompt-to-game "Remix" engine. The client AI parses a player's prompt into
+/// structured market parameters and calls this to mutate the live simulation,
+/// which SpacetimeDB broadcasts to every connected trader.
+#[spacetimedb::reducer]
+pub fn remix_market(
+    ctx: &ReducerContext,
+    ticker: String,
+    drift_modifier: f64,
+    volatility_modifier: f64,
+    headline: String,
+) {
+    market_logic::remix_market(ctx, ticker, drift_modifier, volatility_modifier, headline);
 }

@@ -25,3 +25,4 @@ src/generated/
 *.njsproj
 *.sln
 *.sw?
+.vercel

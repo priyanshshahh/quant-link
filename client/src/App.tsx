@@ -96,9 +96,14 @@ function App() {
   const [demoCaption, setDemoCaption] = useState<string | null>(null);
   const [demoProgress, setDemoProgress] = useState(0);
   const isDemo = useRef<boolean>(
-    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === '1'
+    typeof window !== 'undefined' &&
+    (() => {
+      const p = new URLSearchParams(window.location.search);
+      return p.get('demo') === '1' || p.get('demo') === 'true';
+    })()
   ).current;
   const demoStartedRef = useRef(false);
+  const demoJoinAttemptedRef = useRef(false);
   const handleJoinGameRef = useRef<(username: string, characterClass: string) => void>(() => {});
   const [nearBrokerage, setNearBrokerage] = useState(false);
   const [nearMentor, setNearMentor] = useState(false);
@@ -663,18 +668,36 @@ function App() {
     };
   }, [connected, localPlayer]);
 
+  // Stable id — only changes when player first appears, NOT on every server tick.
+  const localPlayerId = localPlayer?.identity.toHexString() ?? null;
+
   // --- DEMO MODE (?demo=1): auto-join + scripted, captioned game tour ---
-  // Lets you just hit "record" — the game performs the whole walkthrough with
-  // on-screen captions, no manual driving or voiceover needed.
   useEffect(() => {
     if (!isDemo) return;
-    if (connected && !localPlayer && showJoinDialog) {
-      handleJoinGameRef.current('QuantLink Demo', 'Wizard');
-    }
-  }, [isDemo, connected, localPlayer, showJoinDialog]);
+    setDemoCaption('Loading QuantLink 3-minute demo…');
+  }, [isDemo]);
 
   useEffect(() => {
-    if (!isDemo || !connected || !localPlayer || demoStartedRef.current) return;
+    if (!isDemo) return;
+    if (!connected) {
+      demoStartedRef.current = false;
+      demoJoinAttemptedRef.current = false;
+      setDemoCaption('Connecting to SpacetimeDB Maincloud…');
+      return;
+    }
+    if (!localPlayerId && conn && !demoJoinAttemptedRef.current) {
+      demoJoinAttemptedRef.current = true;
+      setShowJoinDialog(false);
+      setDemoCaption('Auto-joining as QuantLink Demo…');
+      handleJoinGameRef.current('QuantLink Demo', 'Wizard');
+    }
+  }, [isDemo, connected, localPlayerId]);
+
+  useEffect(() => {
+    // CRITICAL: depend on localPlayerId (stable), NOT localPlayer object.
+    // localPlayer updates every server tick; depending on it killed the timeline
+    // after the first position update and demoStartedRef blocked restart.
+    if (!isDemo || !connected || !localPlayerId || demoStartedRef.current) return;
     demoStartedRef.current = true;
 
     const intervals: ReturnType<typeof setInterval>[] = [];
@@ -700,8 +723,9 @@ function App() {
       clearInterval(progressId);
       cleanup();
       setDemoProgress(0);
+      demoStartedRef.current = false;
     };
-  }, [isDemo, connected, localPlayer]);
+  }, [isDemo, connected, localPlayerId]);
 
   // --- handleJoinGame ---
   const handleJoinGame = (username: string, characterClass: string) => {
@@ -718,7 +742,21 @@ function App() {
   // --- Render Logic ---
   return (
     <div className="App" style={{ width: '100vw', height: '100vh', position: 'relative' }}>
-      {showJoinDialog && <JoinGameDialog onJoin={handleJoinGame} />}
+      {showJoinDialog && !isDemo && <JoinGameDialog onJoin={handleJoinGame} />}
+
+      {isDemo && (
+        <>
+          <div className="demo-recording-badge">● DEMO RECORDING — 3 MIN AUTO-PLAY</div>
+          {demoCaption && (
+            <div className="demo-caption">
+              <span>{demoCaption}</span>
+              <div className="demo-progress-track">
+                <div className="demo-progress-fill" style={{ width: `${demoProgress}%` }} />
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       {connected && (
           <DebugPanel
@@ -761,19 +799,7 @@ function App() {
           <RichList entries={richList} localIdentity={identity} />
           <NewsTicker news={marketNews} />
 
-          {isDemo && (
-            <div className="demo-recording-badge">● DEMO RECORDING</div>
-          )}
-          {isDemo && demoCaption && (
-            <div className="demo-caption">
-              <span>{demoCaption}</span>
-              <div className="demo-progress-track">
-                <div className="demo-progress-fill" style={{ width: `${demoProgress}%` }} />
-              </div>
-            </div>
-          )}
-
-          {localPlayer && !showTerminal && !showMentor && (
+          {localPlayer && !showTerminal && !showMentor && !isDemo && (
             <button className="quest-fab" onClick={() => setShowQuests((p) => !p)}>
               🎯 Objectives
               {(() => {

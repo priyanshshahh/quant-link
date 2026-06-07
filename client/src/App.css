@@ -506,6 +506,28 @@
 .quest-locked { font-size: 11px; font-weight: 700; color: rgba(255, 255, 255, 0.4); letter-spacing: 0.5px; }
 
 /* ===================== DEMO MODE CAPTIONS ===================== */
+.demo-recording-badge {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 450;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: rgba(180, 0, 30, 0.85);
+  border: 1px solid rgba(255, 80, 100, 0.6);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  pointer-events: none;
+  animation: demoRecPulse 1.4s ease-in-out infinite;
+}
+@keyframes demoRecPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+
 .demo-caption {
   position: fixed;
   bottom: 92px;
@@ -524,11 +546,26 @@
   animation: demoCaptionIn 0.45s ease;
 }
 .demo-caption span {
+  display: block;
   font-size: 21px;
   font-weight: 800;
   letter-spacing: 0.3px;
   color: #fff;
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+  line-height: 1.35;
+}
+.demo-progress-track {
+  margin-top: 12px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.demo-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #16d6ff, #b06bff);
+  transition: width 0.25s linear;
 }
 @keyframes demoCaptionIn {
   from { opacity: 0; transform: translate(-50%, 12px); }

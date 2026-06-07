@@ -58,6 +58,7 @@ import { RichList } from './components/RichList';
 import { NewsTicker } from './components/NewsTicker';
 import { QuestLog } from './components/QuestLog';
 import { generateMarketEvent } from './services/AI_Market_Events';
+import { DEMO_DURATION_MS, runDemoTimeline } from './demoTimeline';
 
 let conn: DbConnection | null = null;
 
@@ -93,6 +94,7 @@ function App() {
   const [showMentor, setShowMentor] = useState(false);
   const [showQuests, setShowQuests] = useState(false);
   const [demoCaption, setDemoCaption] = useState<string | null>(null);
+  const [demoProgress, setDemoProgress] = useState(0);
   const isDemo = useRef<boolean>(
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === '1'
   ).current;
@@ -675,81 +677,29 @@ function App() {
     if (!isDemo || !connected || !localPlayer || demoStartedRef.current) return;
     demoStartedRef.current = true;
 
-    const timers: ReturnType<typeof setTimeout>[] = [];
     const intervals: ReturnType<typeof setInterval>[] = [];
-    const input = currentInputRef.current;
-    const at = (ms: number, fn: () => void) => timers.push(setTimeout(fn, ms));
-    const caption = (text: string) => setDemoCaption(text);
+    const startedAt = performance.now();
 
-    const pickTicker = (): string => {
-      const assets = conn ? [...conn.db.market_asset.iter()] : [];
-      return assets.find((a) => a.ticker === 'NVDA')?.ticker || assets[0]?.ticker || 'NVDA';
-    };
+    const progressId = setInterval(() => {
+      const elapsed = performance.now() - startedAt;
+      setDemoProgress(Math.min(100, (elapsed / DEMO_DURATION_MS) * 100));
+    }, 200);
 
-    // Gentle continuous camera pan for cinematic feel during the intro.
-    const startPan = () => {
-      const id = setInterval(() => { playerRotationRef.current.y += 0.0016; }, 16);
-      intervals.push(id);
-      return id;
-    };
-
-    // ---- TIMELINE ----
-    caption('QuantLink — a 3D quant-trading life-sim, built on SpacetimeDB');
-    const panId = startPan();
-
-    at(3500, () => caption('A living neon city where the market is a real multiplayer simulation'));
-
-    at(6500, () => {
-      clearInterval(panId);
-      caption('Walk to the QuantLink Exchange');
-      input.forward = true;
-      input.sprint = true;
+    const cleanup = runDemoTimeline({
+      conn,
+      input: currentInputRef.current,
+      playerRotationRef,
+      setCaption: setDemoCaption,
+      setShowTerminal,
+      setShowMentor,
+      setShowQuests,
+      intervals,
     });
-    at(10000, () => { input.forward = false; input.sprint = false; });
-
-    at(10500, () => { caption('Open the live trading terminal (T)'); setShowTerminal(true); });
-
-    at(13000, () => {
-      caption('Buy positions — prices are server-authoritative, shared by all players');
-      conn?.reducers.executeTrade({ ticker: pickTicker(), shares: 25, isBuy: true });
-    });
-
-    at(16500, () => {
-      caption('Type a prompt to remix the market — AI moves prices for everyone');
-      conn?.reducers.remixMarket({
-        ticker: 'NVDA',
-        driftModifier: 0.45,
-        volatilityModifier: 0.5,
-        headline: 'AI mania: institutional whales pile into NVDA as chip demand explodes',
-      });
-    });
-
-    at(20000, () => {
-      caption('Build your firm — hire a trading desk');
-      conn?.reducers.hireEmployee({ role: 'trader' });
-    });
-
-    at(23000, () => { caption('Career objectives turn the sandbox into a game (Q)'); setShowTerminal(false); setShowQuests(true); });
-
-    at(25500, () => {
-      caption('Claim server-validated rewards');
-      conn?.reducers.claimQuestReward({ questKey: 'first_trade' });
-    });
-
-    at(28500, () => { setShowQuests(false); caption('Climb the global, server-computed Rich List →'); });
-
-    at(31500, () => {
-      caption('QuantLink · real-time multiplayer · AI-driven markets · built solo on SpacetimeDB');
-      startPan();
-    });
-
-    at(36000, () => setDemoCaption(null));
 
     return () => {
-      timers.forEach(clearTimeout);
-      intervals.forEach(clearInterval);
-      input.forward = false;
-      input.sprint = false;
+      clearInterval(progressId);
+      cleanup();
+      setDemoProgress(0);
     };
   }, [isDemo, connected, localPlayer]);
 
@@ -811,9 +761,15 @@ function App() {
           <RichList entries={richList} localIdentity={identity} />
           <NewsTicker news={marketNews} />
 
+          {isDemo && (
+            <div className="demo-recording-badge">● DEMO RECORDING</div>
+          )}
           {isDemo && demoCaption && (
             <div className="demo-caption">
               <span>{demoCaption}</span>
+              <div className="demo-progress-track">
+                <div className="demo-progress-fill" style={{ width: `${demoProgress}%` }} />
+              </div>
             </div>
           )}
 

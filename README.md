@@ -88,7 +88,6 @@ cp client/.env.example client/.env
 
 ```bash
 spacetime login
-# Redeem LAUNCHPADNYC26 at https://spacetimedb.com/redeem
 spacetime publish quant-link
 ```
 

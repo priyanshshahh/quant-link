@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { MarketAsset, PlayerData, Portfolio } from '../generated/types';
 
 interface MentorChatProps {
@@ -14,7 +13,12 @@ interface ChatMessage {
   text: string;
 }
 
-const buildContextPrompt = (
+/**
+ * Serializes the player's live game state for the server-side mentor proxy
+ * (/api/mentor). Only public game data is sent — the Gemini API key lives
+ * exclusively in the serverless function's environment.
+ */
+const buildContext = (
   player: PlayerData,
   portfolio: Portfolio[],
   marketAssets: MarketAsset[],
@@ -26,13 +30,22 @@ const buildContextPrompt = (
     return `${p.shares.toFixed(1)} shares of ${p.ticker} @ $${price.toFixed(2)} (${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}%)`;
   });
 
-  return `You are an elite quantitative trader mentoring a junior trader in a virtual financial metropolis.
-Player: ${player.username}
+  return `Player: ${player.username}
 Cash: $${player.cashBalance.toFixed(0)}
 Knowledge Level: ${player.knowledgeLevel}/3
 Portfolio: ${positions.length ? positions.join('; ') : 'empty'}
-Market snapshot: ${marketAssets.slice(0, 4).map((a) => `${a.ticker}=$${a.currentPrice.toFixed(2)}`).join(', ')}
-Teach concepts like diversification, volatility, beta, and Black-Scholes when relevant. Keep responses under 120 words, sharp and educational.`;
+Market snapshot: ${marketAssets.slice(0, 4).map((a) => `${a.ticker}=$${a.currentPrice.toFixed(2)}`).join(', ')}`;
+};
+
+/** Offline heuristic advice so the mentor still helps in keyless/local dev. */
+const offlineAdvice = (player: PlayerData, portfolio: Portfolio[]) => {
+  if (portfolio.length === 0) {
+    return `Mentor AI is offline here, so classic advice: with $${player.cashBalance.toFixed(0)} cash, start small — spread your first trades across 3+ uncorrelated tickers and never risk more than 2% of your bankroll on one position.`;
+  }
+  if (portfolio.length < 3) {
+    return 'Mentor AI is offline here. You are concentrated in few names — diversification is the only free lunch in finance. Add uncorrelated assets to cut portfolio variance without giving up expected return.';
+  }
+  return 'Mentor AI is offline here. Solid diversification — now watch volatility: size positions inversely to each asset\'s vol, and rebalance after big moves to keep risk contributions even.';
 };
 
 export const MentorChat: React.FC<MentorChatProps> = ({
@@ -54,40 +67,37 @@ export const MentorChat: React.FC<MentorChatProps> = ({
     const trimmed = input.trim();
     if (!trimmed || loading) return;
 
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
     setMessages((prev) => [...prev, { role: 'user', text: trimmed }]);
     setInput('');
     setLoading(true);
 
-    if (!apiKey) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'mentor',
-          text: 'Gemini API key not configured. Add VITE_GEMINI_API_KEY to client/.env to enable live AI mentorship. Meanwhile: diversify across uncorrelated assets and never risk more than 2% per trade.',
-        },
-      ]);
-      setLoading(false);
-      return;
-    }
-
     try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-      const systemPrompt = buildContextPrompt(localPlayer, portfolio, marketAssets);
-      const result = await model.generateContent([
-        { text: systemPrompt },
-        { text: `Trader asks: ${trimmed}` },
-      ]);
-      const response = result.response.text();
-      setMessages((prev) => [...prev, { role: 'mentor', text: response }]);
-    } catch (err) {
+      const res = await fetch('/api/mentor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: trimmed,
+          context: buildContext(localPlayer, portfolio, marketAssets),
+        }),
+      });
+
+      if (res.status === 429) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'mentor', text: 'Easy, trader — you are asking faster than I can think. Give me a minute.' },
+        ]);
+        return;
+      }
+
+      if (!res.ok) throw new Error(`mentor proxy ${res.status}`);
+
+      const data = (await res.json()) as { reply?: string };
+      if (!data.reply) throw new Error('empty reply');
+      setMessages((prev) => [...prev, { role: 'mentor', text: data.reply! }]);
+    } catch {
       setMessages((prev) => [
         ...prev,
-        {
-          role: 'mentor',
-          text: `Connection error. Fallback advice: with $${localPlayer.cashBalance.toFixed(0)} cash, consider position sizing using the Kelly criterion fraction and monitor portfolio beta against the market.`,
-        },
+        { role: 'mentor', text: offlineAdvice(localPlayer, portfolio) },
       ]);
     } finally {
       setLoading(false);

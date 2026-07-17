@@ -1,6 +1,11 @@
 # QuantLink — 3-Minute Auto Demo
 
-**One-click recording:** https://quantlink.vercel.app/?demo=1
+> Note: the public URL below is the intended deploy target and is **not yet
+> live** (deployment awaits owner login — see `docs/PROJECT-NOTES.md`). Until
+> then, run the client locally (`npm run dev`) and open
+> `http://localhost:5173/?demo=1`.
+
+**One-click recording (once deployed):** https://quantlink.vercel.app/?demo=1
 
 ## Record in 30 seconds
 1. Press **Cmd+Shift+5** → **Record Entire Screen** → **Record**

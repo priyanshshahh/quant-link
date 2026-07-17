@@ -3,8 +3,7 @@
 > **A GTA-style 3D open-world quant trading life-sim, built entirely on SpacetimeDB.**
 > Walk a sunny Miami financial district, run a hedge fund, trade a live server-authoritative market, build a firm, buy real estate & cars, react to AI-generated breaking news, remix the market with natural language, and climb the global Rich List — all in real-time multiplayer.
 
-- **Live game:** https://quantlink.vercel.app
-- **Backend:** SpacetimeDB Maincloud database `quant-link`
+- **Deploy target (pending owner login, not yet live):** Vercel `https://quantlink.vercel.app` + SpacetimeDB Maincloud database `quant-link`. Runs locally today (see README). See `docs/PROJECT-NOTES.md` for the deploy plan.
 - **Stack:** React 19 + TypeScript + React Three Fiber (Three.js) client · Rust → WASM SpacetimeDB module
 
 ---

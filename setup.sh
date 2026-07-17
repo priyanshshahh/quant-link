@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "======================================"
-echo "Vibe Coding Starter Pack: 3D Multiplayer"
+echo "QuantLink — Real-Time Financial Simulation"
 echo "Setup Script"
 echo "======================================"
 echo ""
@@ -238,7 +238,7 @@ echo "   spacetime start"
 echo ""
 echo "2. In a new terminal, publish the module:"
 echo "   cd server"
-echo "   spacetime publish vibe-multiplayer"
+echo "   spacetime publish quant-link"
 echo ""
 echo "3. In a new terminal, start the client:"
 echo "   cd client"

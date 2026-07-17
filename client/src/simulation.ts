@@ -8,8 +8,10 @@
  *   cd client && npm run simulate          # default 10 bots
  *   cd client && npm run simulate -- 100   # 100 bots
  *
- * Requires a running SpacetimeDB server at localhost:3000
- * with the "vibe-multiplayer" database published.
+ * Requires a running SpacetimeDB server with the module published. Host and
+ * database name come from the same env vars the web client uses, so all three
+ * (client, load-test bots, deploy script) stay coherent. Defaults match the
+ * local-dev values in client/.env.example.
  */
 
 import { DbConnection } from './generated/index.js';
@@ -17,8 +19,12 @@ import type { ErrorContext } from './generated/index.js';
 import type { InputState, Vector3 } from './generated/types.js';
 
 // --- Configuration ---
-const DB_HOST = 'localhost:3000';
-const DB_NAME = 'vibe-multiplayer';
+// tsx/Node runs this (not Vite), so read plain env vars, falling back to the
+// VITE_-prefixed ones and finally the local-dev defaults.
+const DB_HOST =
+  process.env.SPACETIME_HOST ?? process.env.VITE_SPACETIME_HOST ?? '127.0.0.1:3001';
+const DB_NAME =
+  process.env.SPACETIME_DB ?? process.env.VITE_SPACETIME_DB ?? 'quant-link';
 const NUM_CLIENTS = parseInt(process.argv[2] || '10', 10);
 const SIMULATION_DURATION_MS = parseInt(process.argv[3] || '10', 10) * 1000;
 const INPUT_TICK_INTERVAL_MS = 50; // 20Hz
@@ -150,8 +156,14 @@ function spawnClient(clientId: number): Promise<ClientState> {
       }
     };
 
+    const dbUri = DB_HOST.startsWith('ws')
+      ? DB_HOST
+      : DB_HOST.includes('spacetimedb.com')
+        ? `wss://${DB_HOST.replace(/^https?:\/\//, '')}`
+        : `ws://${DB_HOST.replace(/^https?:\/\//, '')}`;
+
     DbConnection.builder()
-      .withUri(`ws://${DB_HOST}`)
+      .withUri(dbUri)
       .withDatabaseName(DB_NAME)
       .withConfirmedReads(false)
       .onConnect(onConnect)

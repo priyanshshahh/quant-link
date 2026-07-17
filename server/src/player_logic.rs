@@ -15,24 +15,17 @@
  *    - update_input_state: Updates player state based on client input
  *    - Handles position, animation, and derived state (is_moving, is_running)
  *    - Translates raw input to game state
- * 
- * 3. Game Tick:
- *    - update_players_logic: Placeholder for periodic player updates
- *    - Currently empty as players are updated directly through input
- *    - Can be extended for server-side simulation (AI, physics, etc.)
- * 
+ *
  * Extension points:
  *    - Add terrain logic for realistic height adjustments
  *    - Implement server-side animation determination (commented example provided)
  *    - Add collision detection in calculate_new_position
- *    - Expand update_players_logic for server-side gameplay mechanics
- * 
+ *
  * Related files:
  *    - common.rs: Provides shared data types and constants
  *    - lib.rs: Calls into this module's functions from reducers
  */
 
-use spacetimedb::ReducerContext;
 // Import common structs and constants
 use crate::common::{Vector3, InputState, PLAYER_SPEED, SPRINT_MULTIPLIER};
 // Import the PlayerData struct definition (assuming it's in lib.rs or common.rs)
@@ -155,11 +148,4 @@ pub fn update_input_state(player: &mut PlayerData, input: InputState, client_rot
     player.is_running = player.is_moving && input.sprint;
     player.is_attacking = input.attack;
     player.is_casting = input.cast_spell;
-}
-
-// Update players logic (called from game_tick)
-pub fn update_players_logic(_ctx: &ReducerContext, _delta_time: f64) {
-    // In the simplified starter pack, we don't need to do anything in the game tick
-    // for players as they're updated directly through the update_player_input reducer
-    // This function is a placeholder for future expansion
 }

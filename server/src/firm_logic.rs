@@ -277,8 +277,8 @@ pub fn process_firm_tick(ctx: &ReducerContext) {
             })
             .sum();
 
-        let passive_gain = portfolio_value * total_alpha;
-        let net_flow = rent + passive_gain - total_salary;
+        let net_flow =
+            crate::sim_math::firm_net_flow(rent, portfolio_value, total_alpha, total_salary);
 
         player.cash_balance += net_flow;
         firm.aum = player.cash_balance + portfolio_value;
@@ -336,10 +336,6 @@ pub fn update_rich_list(ctx: &ReducerContext) {
             tier,
         });
     }
-}
-
-pub fn tier_name(tier: u32) -> &'static str {
-    TIERS.get(tier as usize).map(|t| t.0).unwrap_or("Unknown")
 }
 
 fn random_name(seed: u64) -> String {

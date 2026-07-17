@@ -3,6 +3,7 @@ mod firm_logic;
 mod market_logic;
 mod player_logic;
 mod quest_logic;
+mod sim_math;
 
 use spacetimedb::{AnonymousViewContext, Identity, ReducerContext, ScheduleAt, Table, Timestamp};
 use std::time::Duration;
@@ -416,7 +417,8 @@ pub fn update_player_input(
 
 #[spacetimedb::reducer(update)]
 pub fn game_tick(ctx: &ReducerContext, _tick_info: GameTickSchedule) {
-    player_logic::update_players_logic(ctx, 1.0);
+    // Players are updated directly by the `update_player_input` reducer, so the
+    // periodic tick only advances the economy (firm cashflow + leaderboard).
     firm_logic::process_firm_tick(ctx);
     firm_logic::update_rich_list(ctx);
 }

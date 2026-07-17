@@ -1,5 +1,6 @@
 use spacetimedb::{ReducerContext, Table};
 
+use crate::sim_math::{gbm_step, ReplayRng};
 use crate::{
     market_asset, market_news, market_tick_schedule, owned_vehicle, player, portfolio,
     vehicle_catalog, MarketAsset, MarketNews, MarketTickSchedule, OwnedVehicle, Portfolio,
@@ -110,12 +111,8 @@ pub fn process_market_tick(ctx: &ReducerContext, seed: u64) {
         asset.volatility += (base_vol - asset.volatility) * 0.05;
 
         let z = rng.standard_normal();
-        let drift_term = (asset.drift - (asset.volatility * asset.volatility) / 2.0) * dt;
-        let shock_term = asset.volatility * dt.sqrt() * z;
-
         asset.previous_price = asset.current_price;
-        asset.current_price *= (drift_term + shock_term).exp();
-        asset.current_price = asset.current_price.max(0.01);
+        asset.current_price = gbm_step(asset.current_price, asset.drift, asset.volatility, dt, z);
 
         ctx.db.market_asset().ticker().update(asset);
     }
@@ -381,37 +378,6 @@ fn find_position(
         .by_owner()
         .filter(owner)
         .find(|position| position.ticker == ticker)
-}
-
-struct ReplayRng {
-    state: u64,
-}
-
-impl ReplayRng {
-    fn seed(seed: u64) -> Self {
-        Self {
-            state: seed.wrapping_mul(0x9E37_79B9_7F4A_7C15),
-        }
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.state = self
-            .state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1);
-        self.state
-    }
-
-    fn uniform01(&mut self) -> f64 {
-        const SCALE: f64 = 1.0 / (u64::MAX as f64);
-        (self.next_u64() as f64) * SCALE
-    }
-
-    fn standard_normal(&mut self) -> f64 {
-        let u1 = self.uniform01().max(1e-12);
-        let u2 = self.uniform01();
-        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
-    }
 }
 
 pub fn schedule_market_tick(ctx: &ReducerContext) {

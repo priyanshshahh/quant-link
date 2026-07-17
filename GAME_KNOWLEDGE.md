@@ -166,12 +166,13 @@ npm run build
 npx vercel --prod --yes              # → https://quantlink.vercel.app
 ```
 
-### Optional AI keys (client/.env)
-```
-VITE_OPENAI_API_KEY=sk-...     # enables LLM news + remix + mentor
-VITE_GEMINI_API_KEY=...        # alternative provider
-```
-Without keys, the AI systems run on the built-in offline simulator/parser — the game is fully playable with **no keys**.
+### Optional AI key (server-side ONLY)
+The Gemini key lives in the **serverless env**, never the client. Set
+`GEMINI_API_KEY` (or `GOOGLE_API_KEY`) in the Vercel project env — see the root
+`.env.example`. **Never** use a `VITE_`-prefixed key: Vite inlines those into
+the public browser bundle. Without a key, `/api/mentor` and `/api/remix`
+return 503 and the AI systems run on the built-in offline simulator/parser —
+the game is fully playable with **no keys**.
 
 ### Load testing
 ```bash

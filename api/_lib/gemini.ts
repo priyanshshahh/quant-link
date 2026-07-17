@@ -22,8 +22,11 @@ export async function callGemini(parts: string[], maxOutputTokens = 512): Promis
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new GeminiNotConfiguredError();
 
+  // Fail fast to the client's offline fallback instead of hanging until the
+  // platform's max-duration ceiling if Gemini stalls.
   const res = await fetch(GEMINI_URL, {
     method: 'POST',
+    signal: AbortSignal.timeout(10_000),
     headers: {
       'Content-Type': 'application/json',
       'x-goog-api-key': apiKey,

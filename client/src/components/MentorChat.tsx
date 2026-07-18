@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { MarketAsset, PlayerData, Portfolio } from '../generated/types';
+import { MarketAsset, PlayerData, Portfolio, FirmData } from '../generated/types';
 
 interface MentorChatProps {
   localPlayer: PlayerData;
   portfolio: Portfolio[];
   marketAssets: MarketAsset[];
+  firm: FirmData | null;
+  regime: number; // sim_math::Regime as u8
   onClose: () => void;
 }
 
@@ -13,28 +15,54 @@ interface ChatMessage {
   text: string;
 }
 
+const REGIME_LABELS = ['calm', 'volatile', 'crisis'];
+
 /**
- * Serializes the player's live game state for the server-side mentor proxy
- * (/api/mentor). Only public game data is sent — the Gemini API key lives
- * exclusively in the serverless function's environment.
+ * Serializes a live SNAPSHOT of the player's game state for the server-side
+ * mentor proxy (/api/mentor), so advice is grounded in their actual holdings,
+ * cash, P&L and concentration rather than being generic. Only public game data
+ * is sent — the Gemini API key lives exclusively in the serverless function.
  */
 const buildContext = (
   player: PlayerData,
   portfolio: Portfolio[],
   marketAssets: MarketAsset[],
+  firm: FirmData | null,
+  regime: number,
 ) => {
+  const priceOf = (ticker: string) =>
+    marketAssets.find((a) => a.ticker === ticker)?.currentPrice;
+
+  let portfolioValue = 0;
+  let costBasis = 0;
+  let topPositionValue = 0;
+
   const positions = portfolio.map((p) => {
-    const asset = marketAssets.find((a) => a.ticker === p.ticker);
-    const price = asset?.currentPrice ?? p.averageEntryPrice;
+    const price = priceOf(p.ticker) ?? p.averageEntryPrice;
+    const marketValue = price * p.shares;
+    portfolioValue += marketValue;
+    costBasis += p.averageEntryPrice * p.shares;
+    if (marketValue > topPositionValue) topPositionValue = marketValue;
     const pnl = ((price - p.averageEntryPrice) / p.averageEntryPrice) * 100;
-    return `${p.shares.toFixed(1)} shares of ${p.ticker} @ $${price.toFixed(2)} (${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}%)`;
+    return `${p.shares.toFixed(1)} ${p.ticker} @ $${price.toFixed(2)} (${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}%)`;
   });
+
+  const netWorth = player.cashBalance + portfolioValue;
+  const totalPnl = costBasis > 0 ? ((portfolioValue - costBasis) / costBasis) * 100 : 0;
+  const concentration = portfolioValue > 0 ? (topPositionValue / portfolioValue) * 100 : 0;
+  const regimeLabel = REGIME_LABELS[regime] ?? 'calm';
 
   return `Player: ${player.username}
 Cash: $${player.cashBalance.toFixed(0)}
+Portfolio value: $${portfolioValue.toFixed(0)} across ${positions.length} position(s)
+Net worth: $${netWorth.toFixed(0)}
+Unrealized P&L: ${totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(1)}%
+Largest position concentration: ${concentration.toFixed(0)}% of portfolio
 Knowledge Level: ${player.knowledgeLevel}/3
-Portfolio: ${positions.length ? positions.join('; ') : 'empty'}
-Market snapshot: ${marketAssets.slice(0, 4).map((a) => `${a.ticker}=$${a.currentPrice.toFixed(2)}`).join(', ')}`;
+Firm: ${firm ? `${firm.firmName} (tier ${firm.tier}, reputation ${firm.reputation.toFixed(0)}%)` : 'none'}
+Market regime: ${regimeLabel}
+Positions: ${positions.length ? positions.join('; ') : 'empty'}
+Market snapshot: ${marketAssets.slice(0, 6).map((a) => `${a.ticker}=$${a.currentPrice.toFixed(2)}`).join(', ')}`;
 };
 
 /** Offline heuristic advice so the mentor still helps in keyless/local dev. */
@@ -52,12 +80,14 @@ export const MentorChat: React.FC<MentorChatProps> = ({
   localPlayer,
   portfolio,
   marketAssets,
+  firm,
+  regime,
   onClose,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'mentor',
-      text: 'Welcome to QuantLink. I am your Senior Quant mentor. Ask me about your portfolio, risk management, or any market move you do not understand.',
+      text: 'Welcome to QuantLink. I am your Senior Quant mentor — I can see a live snapshot of your holdings, cash and P&L, so ask me about your actual positions, concentration risk, or any market move you do not understand.',
     },
   ]);
   const [input, setInput] = useState('');
@@ -77,7 +107,7 @@ export const MentorChat: React.FC<MentorChatProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: trimmed,
-          context: buildContext(localPlayer, portfolio, marketAssets),
+          context: buildContext(localPlayer, portfolio, marketAssets, firm, regime),
         }),
       });
 
@@ -110,7 +140,7 @@ export const MentorChat: React.FC<MentorChatProps> = ({
         <div className="terminal-header">
           <div>
             <h2>Senior Quant Mentor</h2>
-            <p className="terminal-subtitle">Powered by Gemini</p>
+            <p className="terminal-subtitle">Powered by Gemini · sees a live snapshot of your holdings, cash &amp; P&amp;L</p>
           </div>
           <button className="terminal-close" onClick={onClose}>✕</button>
         </div>

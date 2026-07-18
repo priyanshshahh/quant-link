@@ -895,6 +895,8 @@ function App() {
               localPlayer={localPlayer}
               portfolio={portfolio}
               marketAssets={marketAssets}
+              firm={firm}
+              regime={marketRegime}
               onClose={() => setShowMentor(false)}
             />
           )}

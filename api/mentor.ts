@@ -12,16 +12,21 @@ import { rateLimit } from './_lib/ratelimit';
 import { clientIp, type ApiRequest, type ApiResponse } from './_lib/types';
 
 const MAX_QUESTION_CHARS = 500;
-const MAX_CONTEXT_CHARS = 2000;
+// Raised from 2000 to fit the richer portfolio snapshot (net worth, aggregate
+// P&L, concentration, firm, regime) the client now sends so advice is grounded.
+const MAX_CONTEXT_CHARS = 3000;
 const RATE_LIMIT_PER_MIN = 10;
 
 const MENTOR_SYSTEM_PROMPT =
   'You are an elite quantitative trader mentoring a junior trader in a virtual ' +
   'financial metropolis (a simulation game — all prices are simulated via ' +
-  'geometric Brownian motion, not real markets). Teach concepts like ' +
-  'diversification, volatility, beta, position sizing, and Black-Scholes when ' +
-  'relevant. Keep responses under 120 words, sharp and educational. Never give ' +
-  'real-world financial advice.';
+  'geometric Brownian motion, not real markets). You are given a live SNAPSHOT ' +
+  'of the trader\'s actual holdings, cash, net worth, unrealized P&L, largest-' +
+  'position concentration, firm, and the current market regime — ground your ' +
+  'advice in those specifics (e.g. call out concentration risk or a losing ' +
+  'position by name). Teach concepts like diversification, volatility, beta, ' +
+  'position sizing, and Black-Scholes when relevant. Keep responses under 120 ' +
+  'words, sharp and educational. Never give real-world financial advice.';
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
   if (req.method !== 'POST') {

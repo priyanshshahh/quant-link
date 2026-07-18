@@ -226,3 +226,48 @@ exist.
 - The Gemini-key-never-in-browser boundary is correctly enforced and was
   actually verified by grepping a real production build
   (`docs/PROJECT-NOTES.md`), not just asserted in a comment.
+
+---
+
+## Prod-hardening pass — status & next steps (2026-07)
+
+This audit's findings were worked through on the `prod-hardening` branch. Summary
+of what changed and what was deliberately left as follow-up.
+
+### Addressed
+- **#1 market-moving reducers** — `apply_market_shock`/`remix_market` now return
+  `Result` and are rate-limited per identity (`market_action_guard` table +
+  `rules::cooldown_elapsed`). `remix_market` errors on an unknown ticker.
+- **#2 speed-hack** — `update_player_input` measures real elapsed time between a
+  player's calls (new `last_input_at` column) and clamps it (`rules::clamp_input_dt`),
+  so movement no longer trusts a fixed 1/20s per call.
+- **#3 tests** — validation/movement/regime/order math extracted into pure,
+  natively-tested modules (`rules.rs`, `sim_math.rs`). `cargo test` 13 → 48.
+- **#4 renderer** — shared module-level FBX cache (`playerAssets.ts`), instanced
+  palm/car geometry, 8 per-lamp point lights removed, `ContactShadows` baked
+  (`frames={60}`).
+- **#6 dead code / logging / constants / minor gaps** — `main.ts` + dead
+  `DebugPanel` styles deleted; all `console.*` gated behind `debug.ts`; firm-tier
+  & quest constants unified in `gameConstants.json` (Rust drift-tested);
+  `upgrade_knowledge_level` costs cash; spawn colour derived from identity.
+- **#8 Player.tsx** — model/animation loading (~410 lines) extracted to
+  `playerAssets.ts`, shrinking the god-component 1169 → ~820 lines.
+
+### Deliberately deferred (next steps)
+- **Player.tsx camera/movement split** — the follow/orbital cameras, movement
+  prediction, and reconciliation are tightly interleaved in one `useFrame`.
+  Extracting them risks behaviour changes, so only the low-risk model/animation
+  split was done; a further split into `useCamera`/`useMovementPrediction` hooks
+  is the next increment when there's a test harness to protect it.
+- **Seasonal competitions + leaderboard archive** (benchmark rec #4) — a
+  fixed-length season that snapshots final `rich_list` standings into a
+  persistent `season_results` table, then resets live portfolios. Uses the
+  scheduler + tables already present.
+- **Spectator / replay** (benchmark rec #6) — a read-only client subscribing to
+  another player's/firm's state, and (stretch) scrubbing the SpacetimeDB commit
+  log to reconstruct a past session. Nearly free given the stack; lowest
+  necessity, highest "cool" — do last.
+- **Client test harness** — there is still no client-side test runner (no
+  `*.test.*`, no runner in `package.json`). The riskiest client code
+  (prediction/reconciliation in `Player.tsx`) remains covered only by manual
+  play. Adding Vitest is the highest-value client follow-up.

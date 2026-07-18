@@ -35,10 +35,18 @@ subscription → every client sees the same prices at the same time.
   (`init`, `identity_connected`, `identity_disconnected`). Reducers:
   `register_player`, `update_player_input`, `game_tick` (scheduled economy
   tick), `process_market_tick` (scheduled GBM tick), `execute_trade`,
-  `buy_vehicle`, `upgrade_knowledge_level`, `hire_employee`, `buy_property`,
-  `upgrade_firm`, `claim_quest_reward`, `apply_market_shock`, `remix_market`.
-- `market_logic.rs` — market seeding, the GBM tick, buy/sell, vehicles,
+  `place_order` / `cancel_order` (resting limit/stop orders), `buy_vehicle`,
+  `upgrade_knowledge_level`, `hire_employee`, `buy_property`, `upgrade_firm`,
+  `claim_quest_reward`, `apply_market_shock`, `remix_market`.
+  `apply_market_shock`/`remix_market` return `Result` and are rate-limited
+  per identity via the internal `market_action_guard` table.
+- `market_logic.rs` — market seeding, the regime-modulated GBM tick, buy/sell
+  (owner-parameterised `buy_at`/`sell_at` cores), resting-order fills, vehicles,
   AI market shocks and the natural-language "remix" engine.
+- `rules.rs` — **pure, dependency-free** anti-abuse + validation logic
+  (movement-dt clamp, per-identity cooldowns, shock/remix clamps, trade/firm
+  edges, resting-order fill direction, knowledge cost, identity→spawn-colour).
+  Native unit-tested like `sim_math.rs`.
 - `firm_logic.rs` — firm creation/tiers, employees, properties, per-tick
   cash flow, and the global net-worth "Rich List" leaderboard.
 - `quest_logic.rs` — career-objective catalog + server-side condition checks so
@@ -46,24 +54,39 @@ subscription → every client sees the same prices at the same time.
 - `player_logic.rs` — movement math (`calculate_new_position`) and input→state
   translation (`update_input_state`).
 - `sim_math.rs` — **pure, dependency-free quant core**: `gbm_step`, the seeded
-  `ReplayRng`, and `firm_net_flow`. Free of `spacetimedb` types so it compiles
-  and unit-tests on the native host. `market_logic`/`firm_logic` call into it,
-  so `cargo test` covers the exact production math.
+  `ReplayRng`, `firm_net_flow`, and the volatility-`Regime` state machine
+  (`next_regime` Markov chain + drift/vol multipliers). Free of `spacetimedb`
+  types so it compiles and unit-tests on the native host. `market_logic`/
+  `firm_logic` call into it, so `cargo test` covers the exact production math.
 - `common.rs` — `Vector3`, `InputState`, `PLAYER_SPEED`, `SPRINT_MULTIPLIER`.
 
-Key tables: `player`, `logged_out_player`, `market_asset`, `market_news`,
-`portfolio`, `firm`, `employee`, `property_catalog`, `owned_property`,
-`vehicle_catalog`, `owned_vehicle`, `completed_quest`, `rich_list` (+ the
-`rich_list_view` view, and the two scheduler tables).
+Key tables: `player`, `logged_out_player`, `market_asset`, `market_regime`
+(single-row active regime), `market_news`, `portfolio`, `resting_order`
+(limit/stop), `market_action_guard` (internal cooldown state), `firm`,
+`employee`, `property_catalog`, `owned_property`, `vehicle_catalog`,
+`owned_vehicle`, `completed_quest`, `rich_list` (+ the `rich_list_view` view,
+and the two scheduler tables).
+
+`cargo test` (native, `sim_math` + `rules` + constant-sync) currently: **48
+passing**. Firm-tier/quest constants have a single source of truth in
+`client/src/gameConstants.json`, mirrored by the Rust `TIERS`/`QUESTS` and
+guarded by a `serde_json` dev-dependency test that fails on drift.
 
 ## Client (TypeScript/React) — `client/src/`
 
 - `App.tsx` — SpacetimeDB connection (env-driven), keyboard/mouse input, the
   20Hz game loop, and top-level state. Connection reads
   `VITE_SPACETIME_HOST` / `VITE_SPACETIME_DB`.
-- `components/` — `GameScene`, `FinancialCity`, `Player`, `TradingTerminal`,
-  `MentorChat` (calls `/api/mentor`), `NewsTicker`, `QuestLog`, `RichList`,
-  `GameHUD`, `PlayerUI`, `JoinGameDialog`, `DebugPanel`.
+- `components/` — `GameScene`, `FinancialCity` (repetitive geometry instanced),
+  `Player`, `playerAssets.ts` (module-level FBX model/animation cache shared
+  across players), `TradingTerminal` (trading + limit/stop orders),
+  `MentorChat` (portfolio-aware, calls `/api/mentor`), `NewsTicker` (+ regime
+  badge), `MethodologyModal` (honest GBM/regime explainer), `QuestLog`,
+  `RichList`, `GameHUD`, `PlayerUI`, `JoinGameDialog`, `DebugPanel`.
+- `debug.ts` — `DEBUG` flag (Vite DEV or `?debug`) + `dlog/dwarn/derror`; all
+  in-game `console.*` are gated behind it.
+- `gameConstants.json` — shared firm-tier/quest constants (see server note).
+- `useEscapeClose.ts` — shared hook so overlays close on Escape.
 - `services/AI_Market_Events.ts` — offline simulated news generator (labeled
   `simulated`) and the remix parser: tries `/api/remix`, falls back to a local
   keyword parser. **No LLM key exists in this bundle.**

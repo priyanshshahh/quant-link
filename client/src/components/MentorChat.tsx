@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { MarketAsset, PlayerData, Portfolio, FirmData } from '../generated/types';
+import { useEscapeClose } from '../useEscapeClose';
 
 interface MentorChatProps {
   localPlayer: PlayerData;
@@ -92,6 +93,7 @@ export const MentorChat: React.FC<MentorChatProps> = ({
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  useEscapeClose(onClose);
 
   const sendMessage = async () => {
     const trimmed = input.trim();
@@ -142,10 +144,10 @@ export const MentorChat: React.FC<MentorChatProps> = ({
             <h2>Senior Quant Mentor</h2>
             <p className="terminal-subtitle">Powered by Gemini · sees a live snapshot of your holdings, cash &amp; P&amp;L</p>
           </div>
-          <button className="terminal-close" onClick={onClose}>✕</button>
+          <button className="terminal-close" onClick={onClose} aria-label="Close mentor">✕</button>
         </div>
 
-        <div className="mentor-messages">
+        <div className="mentor-messages" aria-live="polite">
           {messages.map((msg, i) => (
             <div key={i} className={msg.role === 'user' ? 'chat-bubble user' : 'chat-bubble mentor'}>
               {msg.text}

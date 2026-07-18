@@ -6,6 +6,7 @@ import {
 } from '../generated/types';
 import { parseRemixPrompt } from '../services/AI_Market_Events';
 import gameConstants from '../gameConstants.json';
+import { useEscapeClose } from '../useEscapeClose';
 
 // Firm-tier display data from the shared single source of truth
 // (gameConstants.json, mirrored + drift-tested against the Rust server).
@@ -40,6 +41,7 @@ export const TradingTerminal: React.FC<TradingTerminalProps> = ({
   // Resting order form
   const [orderKind, setOrderKind] = useState<'limit' | 'stop'>('limit');
   const [orderTrigger, setOrderTrigger] = useState('');
+  useEscapeClose(onClose);
 
   const REMIX_EXAMPLES = [
     'Retail-driven short squeeze on tech stocks',
@@ -132,7 +134,7 @@ export const TradingTerminal: React.FC<TradingTerminalProps> = ({
               {TIER_NAMES[tier]} · AUM ${(firm?.aum ?? netWorth).toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </p>
           </div>
-          <button className="terminal-close" onClick={onClose}>✕</button>
+          <button className="terminal-close" onClick={onClose} aria-label="Close terminal">✕</button>
         </div>
 
         <div className="terminal-stats">
@@ -233,7 +235,7 @@ export const TradingTerminal: React.FC<TradingTerminalProps> = ({
                         {o.isBuy ? 'BUY' : 'SELL'} {o.isStop ? 'STOP' : 'LIMIT'}
                       </span>
                       <span>{o.shares} {o.ticker} @ ${o.triggerPrice.toFixed(2)}</span>
-                      <button className="order-cancel" onClick={() => handleCancelOrder(o.orderId)}>✕</button>
+                      <button className="order-cancel" onClick={() => handleCancelOrder(o.orderId)} aria-label={`Cancel ${o.isBuy ? 'buy' : 'sell'} order for ${o.ticker}`}>✕</button>
                     </li>
                   ))}
                 </ul>

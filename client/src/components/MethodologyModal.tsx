@@ -1,4 +1,5 @@
 import React from 'react';
+import { useEscapeClose } from '../useEscapeClose';
 
 /**
  * MethodologyModal — an honest "how the market works" explainer.
@@ -14,6 +15,7 @@ interface MethodologyModalProps {
 }
 
 export const MethodologyModal: React.FC<MethodologyModalProps> = ({ onClose }) => {
+  useEscapeClose(onClose);
   return (
     <div className="methodology-overlay" onClick={onClose}>
       <div className="methodology-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Market methodology">

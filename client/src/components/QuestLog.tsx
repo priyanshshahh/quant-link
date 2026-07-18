@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { DbConnection } from '../generated';
 import { PlayerData, MarketAsset, Portfolio, Employee, OwnedProperty, FirmData } from '../generated/types';
 import gameConstants from '../gameConstants.json';
+import { useEscapeClose } from '../useEscapeClose';
 
 interface QuestLogProps {
   conn: DbConnection;
@@ -45,6 +46,7 @@ export const QuestLog: React.FC<QuestLogProps> = ({
   onClose,
 }) => {
   const [busy, setBusy] = useState<string | null>(null);
+  useEscapeClose(onClose);
 
   const netWorth = useMemo(() => {
     const priceOf = (ticker: string) =>
@@ -99,7 +101,7 @@ export const QuestLog: React.FC<QuestLogProps> = ({
             <h2>🎯 Career Objectives</h2>
             <span className="questlog-sub">{completedCount}/{quests.length} completed · climb from intern to titan</span>
           </div>
-          <button className="questlog-close" onClick={onClose}>✕</button>
+          <button className="questlog-close" onClick={onClose} aria-label="Close objectives">✕</button>
         </div>
 
         <div className="questlog-list">

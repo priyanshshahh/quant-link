@@ -53,6 +53,18 @@ textarea,
   -webkit-user-select: text;
 }
 
+/* Visible keyboard focus ring for all interactive UI (mouse users unaffected
+   via :focus-visible). The 3D canvas is intentionally excluded above. */
+button:focus-visible,
+a:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid #00e5ff;
+  outline-offset: 2px;
+}
+
 h1 {
   font-size: 3.2em;
   line-height: 1.1;

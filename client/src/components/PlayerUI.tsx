@@ -1,7 +1,9 @@
 import React, { useMemo } from 'react';
 import { PlayerData, MarketAsset, Portfolio, FirmData } from '../generated/types';
+import gameConstants from '../gameConstants.json';
 
-const TIER_NAMES = ['Studio', 'Office', 'Trading Floor', 'Wall St. Tower'];
+// Short tier labels from the shared single source of truth.
+const TIER_NAMES = gameConstants.firmTiers.map((t) => t.shortName);
 
 interface PlayerUIProps {
   playerData: PlayerData | null;

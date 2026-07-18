@@ -350,3 +350,26 @@ fn random_name(seed: u64) -> String {
     let j = (seed * 7 + 3) % 8;
     format!("{} {}", FIRST[i as usize], LAST[j as usize])
 }
+
+#[cfg(test)]
+mod tests {
+    use super::TIERS;
+
+    /// The client (`client/src/gameConstants.json`) is the single source of
+    /// truth for firm-tier names/requirements/costs; this test parses that file
+    /// and asserts the Rust `TIERS` constant has not drifted from it.
+    #[test]
+    fn tiers_match_shared_game_constants() {
+        let raw = include_str!("../../client/src/gameConstants.json");
+        let json: serde_json::Value = serde_json::from_str(raw).expect("valid JSON");
+        let tiers = json["firmTiers"].as_array().expect("firmTiers array");
+
+        assert_eq!(tiers.len(), TIERS.len(), "tier count drift");
+        for (i, t) in tiers.iter().enumerate() {
+            let (name, req, cost) = TIERS[i];
+            assert_eq!(t["name"].as_str().unwrap(), name, "tier {i} name");
+            assert_eq!(t["netWorthReq"].as_f64().unwrap(), req, "tier {i} req");
+            assert_eq!(t["upgradeCost"].as_f64().unwrap(), cost, "tier {i} cost");
+        }
+    }
+}

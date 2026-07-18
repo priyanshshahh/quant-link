@@ -100,3 +100,34 @@ pub fn claim_quest_reward(ctx: &ReducerContext, quest_key: String) -> Result<(),
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::QUESTS;
+    use std::collections::HashMap;
+
+    /// The client (`client/src/gameConstants.json`) is the single source of
+    /// truth for quest keys + reward amounts; this test parses that file and
+    /// asserts the Rust `QUESTS` catalog matches it (same keys, same rewards).
+    /// The client lists quests in display order, so compare by key, not index.
+    #[test]
+    fn quests_match_shared_game_constants() {
+        let raw = include_str!("../../client/src/gameConstants.json");
+        let json: serde_json::Value = serde_json::from_str(raw).expect("valid JSON");
+        let quests = json["quests"].as_array().expect("quests array");
+
+        assert_eq!(quests.len(), QUESTS.len(), "quest count drift");
+
+        let json_rewards: HashMap<&str, f64> = quests
+            .iter()
+            .map(|q| (q["key"].as_str().unwrap(), q["reward"].as_f64().unwrap()))
+            .collect();
+
+        for (key, reward) in QUESTS {
+            let json_reward = json_rewards
+                .get(key)
+                .unwrap_or_else(|| panic!("quest '{key}' missing from gameConstants.json"));
+            assert_eq!(*json_reward, reward, "reward drift for quest '{key}'");
+        }
+    }
+}

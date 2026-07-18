@@ -1,0 +1,21 @@
+{
+  "_comment": "SINGLE SOURCE OF TRUTH for firm-tier and quest gameplay constants shared across the client UI. The Rust server mirrors these values (firm_logic.rs TIERS, quest_logic.rs QUESTS); a cargo test parses this file and asserts the Rust copies match, so drift is caught at build time. Change values here and in the Rust constants together.",
+  "firmTiers": [
+    { "name": "Studio Apartment", "shortName": "Studio", "netWorthReq": 0, "upgradeCost": 0 },
+    { "name": "Small Office", "shortName": "Office", "netWorthReq": 250000, "upgradeCost": 50000 },
+    { "name": "Trading Floor", "shortName": "Trading Floor", "netWorthReq": 1000000, "upgradeCost": 200000 },
+    { "name": "Wall Street Tower", "shortName": "Wall St. Tower", "netWorthReq": 5000000, "upgradeCost": 1000000 }
+  ],
+  "quests": [
+    { "key": "first_trade", "title": "First Blood", "desc": "Open your first position on the market", "reward": 5000, "target": 1 },
+    { "key": "diversify", "title": "Diversify", "desc": "Hold 3 different tickers at once", "reward": 15000, "target": 3 },
+    { "key": "six_figures", "title": "Six Figures", "desc": "Reach $150K net worth", "reward": 10000, "target": 150000, "fmt": "money" },
+    { "key": "knowledge", "title": "Back to School", "desc": "Upgrade your trading knowledge once", "reward": 5000, "target": 1 },
+    { "key": "first_hire", "title": "Build a Desk", "desc": "Hire your first employee", "reward": 8000, "target": 1 },
+    { "key": "first_car", "title": "Flex", "desc": "Buy your first vehicle", "reward": 10000, "target": 1 },
+    { "key": "property_mogul", "title": "Property Mogul", "desc": "Acquire a piece of real estate", "reward": 20000, "target": 1 },
+    { "key": "team_builder", "title": "Team Builder", "desc": "Grow your team to 3 employees", "reward": 25000, "target": 3 },
+    { "key": "firm_upgrade", "title": "Moving Up", "desc": "Upgrade your firm to the next tier", "reward": 30000, "target": 1 },
+    { "key": "whale", "title": "Whale", "desc": "Reach $1,000,000 net worth", "reward": 100000, "target": 1000000, "fmt": "money" }
+  ]
+}

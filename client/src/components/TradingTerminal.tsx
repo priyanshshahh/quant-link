@@ -5,10 +5,13 @@ import {
   FirmData, Employee, PropertyCatalog, OwnedProperty,
 } from '../generated/types';
 import { parseRemixPrompt } from '../services/AI_Market_Events';
+import gameConstants from '../gameConstants.json';
 
-const TIER_NAMES = ['Studio Apartment', 'Small Office', 'Trading Floor', 'Wall Street Tower'];
-const TIER_REQS = [0, 250_000, 1_000_000, 5_000_000];
-const TIER_COSTS = [0, 50_000, 200_000, 1_000_000];
+// Firm-tier display data from the shared single source of truth
+// (gameConstants.json, mirrored + drift-tested against the Rust server).
+const TIER_NAMES = gameConstants.firmTiers.map((t) => t.name);
+const TIER_REQS = gameConstants.firmTiers.map((t) => t.netWorthReq);
+const TIER_COSTS = gameConstants.firmTiers.map((t) => t.upgradeCost);
 
 interface TradingTerminalProps {
   conn: DbConnection;

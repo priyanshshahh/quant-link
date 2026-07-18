@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { DbConnection } from '../generated';
 import { PlayerData, MarketAsset, Portfolio, Employee, OwnedProperty, FirmData } from '../generated/types';
+import gameConstants from '../gameConstants.json';
 
 interface QuestLogProps {
   conn: DbConnection;
@@ -57,18 +58,30 @@ export const QuestLog: React.FC<QuestLogProps> = ({
     [portfolio]
   );
 
-  const quests: QuestDef[] = [
-    { key: 'first_trade', title: 'First Blood', desc: 'Open your first position on the market', reward: 5_000, current: portfolio.length, target: 1 },
-    { key: 'diversify', title: 'Diversify', desc: 'Hold 3 different tickers at once', reward: 15_000, current: distinctTickers, target: 3 },
-    { key: 'six_figures', title: 'Six Figures', desc: 'Reach $150K net worth', reward: 10_000, current: netWorth, target: 150_000, fmt: money },
-    { key: 'knowledge', title: 'Back to School', desc: 'Upgrade your trading knowledge once', reward: 5_000, current: localPlayer.knowledgeLevel, target: 1 },
-    { key: 'first_hire', title: 'Build a Desk', desc: 'Hire your first employee', reward: 8_000, current: employees.length, target: 1 },
-    { key: 'first_car', title: 'Flex', desc: 'Buy your first vehicle', reward: 10_000, current: ownedVehicleCount, target: 1 },
-    { key: 'property_mogul', title: 'Property Mogul', desc: 'Acquire a piece of real estate', reward: 20_000, current: ownedProperties.length, target: 1 },
-    { key: 'team_builder', title: 'Team Builder', desc: 'Grow your team to 3 employees', reward: 25_000, current: employees.length, target: 3 },
-    { key: 'firm_upgrade', title: 'Moving Up', desc: 'Upgrade your firm to the next tier', reward: 30_000, current: firm?.tier ?? 0, target: 1 },
-    { key: 'whale', title: 'Whale', desc: 'Reach $1,000,000 net worth', reward: 100_000, current: netWorth, target: 1_000_000, fmt: money },
-  ];
+  // Live progress per quest key; the static definitions (title/desc/reward/
+  // target) come from the shared gameConstants.json single source of truth.
+  const currentByKey: Record<string, number> = {
+    first_trade: portfolio.length,
+    diversify: distinctTickers,
+    six_figures: netWorth,
+    knowledge: localPlayer.knowledgeLevel,
+    first_hire: employees.length,
+    first_car: ownedVehicleCount,
+    property_mogul: ownedProperties.length,
+    team_builder: employees.length,
+    firm_upgrade: firm?.tier ?? 0,
+    whale: netWorth,
+  };
+
+  const quests: QuestDef[] = gameConstants.quests.map((q) => ({
+    key: q.key,
+    title: q.title,
+    desc: q.desc,
+    reward: q.reward,
+    target: q.target,
+    current: currentByKey[q.key] ?? 0,
+    fmt: q.fmt === 'money' ? money : undefined,
+  }));
 
   const claim = (key: string) => {
     setBusy(key);

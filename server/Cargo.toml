@@ -11,3 +11,9 @@ crate-type = ["cdylib"]
 [dependencies]
 spacetimedb = "2.4"
 log = "0.4"
+
+# Test-only: used by the constant-sync tests to parse the shared
+# client/src/gameConstants.json and assert the Rust tier/quest constants match
+# it. Not compiled into the WASM module (dev-dependencies are test-only).
+[dev-dependencies]
+serde_json = "1"

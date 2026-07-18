@@ -55,6 +55,7 @@ import FirmRow from "./firm_table";
 import GameTickScheduleRow from "./game_tick_schedule_table";
 import MarketAssetRow from "./market_asset_table";
 import MarketNewsRow from "./market_news_table";
+import MarketRegimeRow from "./market_regime_table";
 import OwnedPropertyRow from "./owned_property_table";
 import OwnedVehicleRow from "./owned_vehicle_table";
 import PlayerRow from "./player_table";
@@ -140,6 +141,17 @@ const tablesSchema = __schema({
       { name: 'market_news_news_id_key', constraint: 'unique', columns: ['newsId'] },
     ],
   }, MarketNewsRow),
+  market_regime: __table({
+    name: 'market_regime',
+    indexes: [
+      { accessor: 'id', name: 'market_regime_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'market_regime_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, MarketRegimeRow),
   owned_property: __table({
     name: 'owned_property',
     indexes: [

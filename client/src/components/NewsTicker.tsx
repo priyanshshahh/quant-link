@@ -3,20 +3,36 @@ import { MarketNews } from '../generated/types';
 
 interface NewsTickerProps {
   news: MarketNews[];
+  regime?: number; // sim_math::Regime as u8 (0 calm, 1 volatile, 2 crisis)
 }
 
 const sentimentClass = (s: number) => (s >= 3 ? 'bull' : s <= -3 ? 'bear' : 'neutral');
 const sentimentArrow = (s: number) => (s >= 3 ? '▲' : s <= -3 ? '▼' : '◆');
 
-export const NewsTicker: React.FC<NewsTickerProps> = ({ news }) => {
+// Active market-volatility regime (server-driven, see sim_math::Regime).
+const REGIMES = [
+  { label: 'CALM', cls: 'bull' },
+  { label: 'VOLATILE', cls: 'neutral' },
+  { label: 'CRISIS', cls: 'bear' },
+] as const;
+
+export const NewsTicker: React.FC<NewsTickerProps> = ({ news, regime = 0 }) => {
   const sorted = [...news].sort((a, b) => Number(b.newsId) - Number(a.newsId));
   const latest = sorted[0];
+  const activeRegime = REGIMES[regime] ?? REGIMES[0];
 
   return (
     <div className="newsticker">
       <div className="newsticker-badge">
         <span className="newsticker-ai">AI</span>
         <span className="newsticker-label">MARKET WIRE</span>
+      </div>
+      <div
+        className={`newsticker-regime ${activeRegime.cls}`}
+        title="Active market volatility regime — modulates simulated drift/volatility"
+      >
+        <span className="newsticker-regime-dot" />
+        {activeRegime.label}
       </div>
       <div className="newsticker-scroll">
         {sorted.length === 0 ? (

@@ -89,6 +89,7 @@ function App() {
   const [ownedProperties, setOwnedProperties] = useState<OwnedProperty[]>([]);
   const [richList, setRichList] = useState<RichListEntry[]>([]);
   const [marketNews, setMarketNews] = useState<MarketNews[]>([]);
+  const [marketRegime, setMarketRegime] = useState<number>(0); // sim_math::Regime as u8
   const [completedQuests, setCompletedQuests] = useState<Set<string>>(new Set());
   const [ownedVehicleCount, setOwnedVehicleCount] = useState(0);
   const [showTerminal, setShowTerminal] = useState(false);
@@ -200,6 +201,11 @@ function App() {
       if (!conn) return;
       setMarketNews([...conn.db.market_news.iter()]);
     };
+    const syncRegime = () => {
+      if (!conn) return;
+      const row = [...conn.db.market_regime.iter()][0];
+      if (row) setMarketRegime(row.regime);
+    };
     const syncQuests = () => {
       if (!conn || !identityRef.current) return;
       const myId = identityRef.current.toHexString();
@@ -248,6 +254,9 @@ function App() {
     conn.db.market_news.onInsert((_ctx, _row) => syncNews());
     conn.db.market_news.onDelete((_ctx, _row) => syncNews());
 
+    conn.db.market_regime.onInsert((_ctx, _row) => syncRegime());
+    conn.db.market_regime.onUpdate((_ctx, _old, _new) => syncRegime());
+
     conn.db.completed_quest.onInsert((_ctx, _row) => syncQuests());
     conn.db.completed_quest.onDelete((_ctx, _row) => syncQuests());
 
@@ -279,6 +288,7 @@ function App() {
       setPropertyCatalog([...conn.db.property_catalog.iter()]);
       setRichList([...conn.db.rich_list_view.iter()]);
       setMarketNews([...conn.db.market_news.iter()]);
+      { const r = [...conn.db.market_regime.iter()][0]; if (r) setMarketRegime(r.regime); }
        if (identityRef.current) {
          const myId = identityRef.current;
          setPortfolio([...conn.db.portfolio.iter()].filter(
@@ -324,6 +334,7 @@ function App() {
         "SELECT * FROM owned_property",
         "SELECT * FROM rich_list_view",
         "SELECT * FROM market_news",
+        "SELECT * FROM market_regime",
         "SELECT * FROM completed_quest",
       ]);
   }, [onSubscriptionApplied, onSubscriptionError]);
@@ -798,7 +809,7 @@ function App() {
           )}
 
           <RichList entries={richList} localIdentity={identity} />
-          <NewsTicker news={marketNews} />
+          <NewsTicker news={marketNews} regime={marketRegime} />
 
           {localPlayer && !showTerminal && !showMentor && !isDemo && (
             <button className="quest-fab" onClick={() => setShowQuests((p) => !p)}>

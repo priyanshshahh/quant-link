@@ -1,11 +1,13 @@
 use spacetimedb::{ReducerContext, Table};
 
 use crate::rules;
-use crate::sim_math::{gbm_step, ReplayRng};
+use crate::sim_math::{
+    gbm_step, next_regime, regime_drift_multiplier, regime_vol_multiplier, Regime, ReplayRng,
+};
 use crate::{
-    market_asset, market_news, market_tick_schedule, owned_vehicle, player, portfolio,
-    vehicle_catalog, MarketAsset, MarketNews, MarketTickSchedule, OwnedVehicle, Portfolio,
-    VehicleCatalog,
+    market_asset, market_news, market_regime, market_tick_schedule, owned_vehicle, player,
+    portfolio, vehicle_catalog, MarketAsset, MarketNews, MarketRegime, MarketTickSchedule,
+    OwnedVehicle, Portfolio, VehicleCatalog,
 };
 
 const STARTING_CASH: f64 = 100_000.0;
@@ -102,18 +104,86 @@ fn base_volatility(ticker: &str) -> f64 {
     }
 }
 
+/// Seed the single market-regime row (starts calm). Idempotent.
+pub fn seed_market_regime(ctx: &ReducerContext) {
+    if ctx.db.market_regime().id().find(0).is_none() {
+        ctx.db.market_regime().insert(MarketRegime {
+            id: 0,
+            regime: Regime::Calm.to_u8(),
+            ticks_in_regime: 0,
+            updated_at: ctx.timestamp,
+        });
+    }
+}
+
+/// Honest headline + sentiment for a regime transition. These are labelled
+/// simulation events (server-authoritative), not real news.
+fn regime_transition_news(regime: Regime) -> (String, i32) {
+    match regime {
+        Regime::Calm => (
+            "Volatility subsides — the market settles into a calm regime.".to_string(),
+            3,
+        ),
+        Regime::Volatile => (
+            "Turbulence builds — the market shifts into a volatile regime.".to_string(),
+            -3,
+        ),
+        Regime::Crisis => (
+            "Risk-off crisis regime: volatility spikes and drift turns negative.".to_string(),
+            -8,
+        ),
+    }
+}
+
 pub fn process_market_tick(ctx: &ReducerContext, seed: u64) {
     let dt = TICK_SECONDS / (TRADING_DAYS_PER_YEAR * SECONDS_PER_TRADING_DAY);
     let mut rng = ReplayRng::seed(seed);
 
+    // --- Advance the volatility regime once per tick (before per-asset math) ---
+    let existing = ctx.db.market_regime().id().find(0);
+    let current = existing
+        .as_ref()
+        .map(|r| Regime::from_u8(r.regime))
+        .unwrap_or(Regime::Calm);
+    let prev_ticks = existing.as_ref().map(|r| r.ticks_in_regime).unwrap_or(0);
+
+    let next = next_regime(current, rng.uniform01());
+    let changed = next != current;
+
+    let regime_row = MarketRegime {
+        id: 0,
+        regime: next.to_u8(),
+        ticks_in_regime: if changed { 0 } else { prev_ticks.saturating_add(1) },
+        updated_at: ctx.timestamp,
+    };
+    if existing.is_some() {
+        ctx.db.market_regime().id().update(regime_row);
+    } else {
+        ctx.db.market_regime().insert(regime_row);
+    }
+    if changed {
+        spacetimedb::log::info!("[MARKET] regime {} -> {}", current.label(), next.label());
+        let (headline, sentiment) = regime_transition_news(next);
+        push_news(ctx, headline, sentiment);
+    }
+
+    // The regime modulates every asset's *effective* drift/vol this tick without
+    // permanently altering its stored baseline — so vol clusters while the regime
+    // persists, then relaxes when it flips back to calm.
+    let vol_mult = regime_vol_multiplier(next);
+    let drift_mult = regime_drift_multiplier(next);
+
     for mut asset in ctx.db.market_asset().iter() {
-        // Mean-revert volatility toward its baseline so post-shock turbulence decays.
+        // Mean-revert stored volatility toward baseline so post-shock turbulence decays.
         let base_vol = base_volatility(&asset.ticker);
         asset.volatility += (base_vol - asset.volatility) * 0.05;
 
         let z = rng.standard_normal();
+        let eff_vol = (asset.volatility * vol_mult).clamp(0.01, 3.0);
+        let eff_drift = asset.drift * drift_mult;
+
         asset.previous_price = asset.current_price;
-        asset.current_price = gbm_step(asset.current_price, asset.drift, asset.volatility, dt, z);
+        asset.current_price = gbm_step(asset.current_price, eff_drift, eff_vol, dt, z);
 
         ctx.db.market_asset().ticker().update(asset);
     }

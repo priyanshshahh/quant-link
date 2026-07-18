@@ -57,6 +57,98 @@ pub fn gbm_step(price: f64, drift: f64, volatility: f64, dt: f64, z: f64) -> f64
     (price * (drift_term + shock_term).exp()).max(0.01)
 }
 
+/// Market volatility regime. GBM on its own has *constant* volatility — its
+/// best-known shortcoming (no vol clustering, no fat tails, no crashes). A
+/// regime state that persists across ticks and modulates every asset's
+/// effective drift/vol is the cheapest principled fix: it produces calm and
+/// turbulent phases and lets volatility cluster the way real markets do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Regime {
+    Calm,
+    Volatile,
+    Crisis,
+}
+
+impl Regime {
+    pub fn from_u8(v: u8) -> Regime {
+        match v {
+            1 => Regime::Volatile,
+            2 => Regime::Crisis,
+            _ => Regime::Calm,
+        }
+    }
+
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Regime::Calm => 0,
+            Regime::Volatile => 1,
+            Regime::Crisis => 2,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Regime::Calm => "calm",
+            Regime::Volatile => "volatile",
+            Regime::Crisis => "crisis",
+        }
+    }
+}
+
+/// Multiplier applied to each asset's base volatility in the current regime.
+/// Calm dampens, Volatile roughly doubles, Crisis blows it out — this is what
+/// makes vol *cluster* (the regime persists over many ticks, see `next_regime`).
+pub fn regime_vol_multiplier(r: Regime) -> f64 {
+    match r {
+        Regime::Calm => 0.85,
+        Regime::Volatile => 1.6,
+        Regime::Crisis => 2.8,
+    }
+}
+
+/// Multiplier applied to each asset's base drift in the current regime. A crisis
+/// flips drift negative (risk-off selloff); a volatile regime damps trend.
+pub fn regime_drift_multiplier(r: Regime) -> f64 {
+    match r {
+        Regime::Calm => 1.0,
+        Regime::Volatile => 0.6,
+        Regime::Crisis => -1.2,
+    }
+}
+
+/// Transition to the next regime given a uniform draw `u` in [0, 1). A simple
+/// per-tick Markov chain: each regime mostly persists (that persistence *is* the
+/// volatility clustering), but can escalate toward crisis or de-escalate toward
+/// calm. Crises can only unwind through the volatile state, never snap straight
+/// back to calm.
+pub fn next_regime(current: Regime, u: f64) -> Regime {
+    match current {
+        Regime::Calm => {
+            if u < 0.03 {
+                Regime::Volatile
+            } else {
+                Regime::Calm
+            }
+        }
+        Regime::Volatile => {
+            if u < 0.06 {
+                Regime::Crisis
+            } else if u < 0.30 {
+                Regime::Calm
+            } else {
+                Regime::Volatile
+            }
+        }
+        Regime::Crisis => {
+            if u < 0.35 {
+                Regime::Volatile
+            } else {
+                Regime::Crisis
+            }
+        }
+    }
+}
+
 /// Per-tick firm cash flow: rent income + passive portfolio alpha − salaries.
 ///
 /// A positive result grows the owner's cash; a negative result (salaries
@@ -215,5 +307,69 @@ mod tests {
         let more_staff = firm_net_flow(10.0, 100_000.0, 0.0005, 300.0);
         assert!(more_staff < base, "more salary must reduce net flow");
         assert!((base - more_staff - 200.0).abs() < 1e-9);
+    }
+
+    // ---- Regimes ---------------------------------------------------------
+
+    #[test]
+    fn regime_u8_roundtrips() {
+        for r in [Regime::Calm, Regime::Volatile, Regime::Crisis] {
+            assert_eq!(Regime::from_u8(r.to_u8()), r);
+        }
+        // Unknown byte falls back to Calm.
+        assert_eq!(Regime::from_u8(99), Regime::Calm);
+    }
+
+    #[test]
+    fn regime_vol_multiplier_is_ordered() {
+        assert!(regime_vol_multiplier(Regime::Calm) < regime_vol_multiplier(Regime::Volatile));
+        assert!(regime_vol_multiplier(Regime::Volatile) < regime_vol_multiplier(Regime::Crisis));
+        assert!(regime_vol_multiplier(Regime::Calm) < 1.0, "calm dampens vol");
+    }
+
+    #[test]
+    fn regime_drift_multiplier_flips_negative_in_crisis() {
+        assert!(regime_drift_multiplier(Regime::Crisis) < 0.0, "crisis is risk-off");
+        assert_eq!(regime_drift_multiplier(Regime::Calm), 1.0);
+    }
+
+    #[test]
+    fn regime_persists_on_typical_draw() {
+        // A mid-range draw keeps every regime where it is (clustering).
+        assert_eq!(next_regime(Regime::Calm, 0.5), Regime::Calm);
+        assert_eq!(next_regime(Regime::Volatile, 0.5), Regime::Volatile);
+        assert_eq!(next_regime(Regime::Crisis, 0.9), Regime::Crisis);
+    }
+
+    #[test]
+    fn regime_escalates_and_deescalates_on_low_draws() {
+        assert_eq!(next_regime(Regime::Calm, 0.0), Regime::Volatile);
+        assert_eq!(next_regime(Regime::Volatile, 0.0), Regime::Crisis);
+        assert_eq!(next_regime(Regime::Volatile, 0.2), Regime::Calm);
+        // A crisis can only unwind via the volatile state, never straight to calm.
+        assert_eq!(next_regime(Regime::Crisis, 0.0), Regime::Volatile);
+    }
+
+    #[test]
+    fn regime_long_run_visits_all_states() {
+        // Driven by the seeded RNG, the chain should reach every regime and
+        // spend the majority of time calm (crises are rare and transient).
+        let mut rng = ReplayRng::seed(2024);
+        let mut regime = Regime::Calm;
+        let mut seen_volatile = false;
+        let mut seen_crisis = false;
+        let mut calm_ticks = 0usize;
+        let n = 100_000usize;
+        for _ in 0..n {
+            regime = next_regime(regime, rng.uniform01());
+            match regime {
+                Regime::Calm => calm_ticks += 1,
+                Regime::Volatile => seen_volatile = true,
+                Regime::Crisis => seen_crisis = true,
+            }
+        }
+        assert!(seen_volatile, "chain never reached a volatile regime");
+        assert!(seen_crisis, "chain never reached a crisis regime");
+        assert!(calm_ticks > n / 2, "market should be calm most of the time");
     }
 }

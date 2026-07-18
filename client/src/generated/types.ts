@@ -103,6 +103,14 @@ export const MarketNews = __t.object("MarketNews", {
 });
 export type MarketNews = __Infer<typeof MarketNews>;
 
+export const MarketRegime = __t.object("MarketRegime", {
+  id: __t.u32(),
+  regime: __t.u8(),
+  ticksInRegime: __t.u32(),
+  updatedAt: __t.timestamp(),
+});
+export type MarketRegime = __Infer<typeof MarketRegime>;
+
 export const MarketTickSchedule = __t.object("MarketTickSchedule", {
   scheduledId: __t.u64(),
   scheduledAt: __t.scheduleAt(),

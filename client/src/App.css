@@ -213,6 +213,33 @@
   color: #fff;
 }
 
+/* Active market-volatility regime badge (calm / volatile / crisis) */
+.newsticker-regime {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  height: 100%;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  background: rgba(0, 0, 0, 0.55);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  z-index: 2;
+}
+.newsticker-regime .newsticker-regime-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+  animation: richlist-pulse 1.4s ease-in-out infinite;
+}
+.newsticker-regime.bull { color: #39ff14; }
+.newsticker-regime.bear { color: #ff4466; }
+.newsticker-regime.neutral { color: #ffd400; }
+
 .newsticker-scroll {
   flex: 1;
   overflow: hidden;

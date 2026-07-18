@@ -91,6 +91,20 @@ pub struct MarketAsset {
     drift: f64,
 }
 
+/// Current market volatility regime (single row, id 0). Advanced once per
+/// market tick by `process_market_tick` and read by clients so the active
+/// regime (calm / volatile / crisis) can be displayed honestly. `regime` is a
+/// `sim_math::Regime` encoded as u8.
+#[spacetimedb::table(accessor = market_regime, public)]
+#[derive(Clone)]
+pub struct MarketRegime {
+    #[primary_key]
+    id: u32,
+    regime: u8,
+    ticks_in_regime: u32,
+    updated_at: Timestamp,
+}
+
 /// AI-generated market news feed (server-authoritative so every client sees
 /// the same headlines). Written by the `apply_market_shock` reducer.
 #[spacetimedb::table(accessor = market_news, public)]
@@ -277,6 +291,7 @@ pub fn init(ctx: &ReducerContext) -> Result<(), String> {
 
     market_logic::seed_market_assets(ctx);
     market_logic::seed_vehicle_catalog(ctx);
+    market_logic::seed_market_regime(ctx);
     firm_logic::seed_property_catalog(ctx);
     market_logic::schedule_market_tick(ctx);
 

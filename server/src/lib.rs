@@ -134,6 +134,28 @@ pub struct Portfolio {
     average_entry_price: f64,
 }
 
+/// Resting limit/stop orders. Each market tick fills any order whose trigger the
+/// new price has crossed (see `market_logic::process_resting_orders`).
+/// `is_stop == false` is a limit order; `true` is a stop order.
+#[spacetimedb::table(
+    accessor = resting_order,
+    public,
+    index(accessor = by_owner, btree(columns = [owner_identity]))
+)]
+#[derive(Clone)]
+pub struct RestingOrder {
+    #[primary_key]
+    #[auto_inc]
+    order_id: u64,
+    owner_identity: Identity,
+    ticker: String,
+    is_buy: bool,
+    is_stop: bool,
+    shares: f64,
+    trigger_price: f64,
+    created_at: Timestamp,
+}
+
 #[spacetimedb::table(accessor = market_tick_schedule, scheduled(process_market_tick))]
 pub struct MarketTickSchedule {
     #[primary_key]
@@ -494,6 +516,26 @@ pub fn execute_trade(
 #[spacetimedb::reducer]
 pub fn buy_vehicle(ctx: &ReducerContext, vehicle_key: String) -> Result<(), String> {
     market_logic::buy_vehicle(ctx, vehicle_key)
+}
+
+/// Place a resting limit or stop order (`is_stop == false` => limit). It fills
+/// on a future market tick when the price crosses `trigger_price`.
+#[spacetimedb::reducer]
+pub fn place_order(
+    ctx: &ReducerContext,
+    ticker: String,
+    is_buy: bool,
+    is_stop: bool,
+    shares: f64,
+    trigger_price: f64,
+) -> Result<(), String> {
+    market_logic::place_order(ctx, ticker, is_buy, is_stop, shares, trigger_price)
+}
+
+/// Cancel one of the caller's resting orders.
+#[spacetimedb::reducer]
+pub fn cancel_order(ctx: &ReducerContext, order_id: u64) -> Result<(), String> {
+    market_logic::cancel_order(ctx, order_id)
 }
 
 #[spacetimedb::reducer]

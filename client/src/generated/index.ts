@@ -37,9 +37,11 @@ import {
 import ApplyMarketShockReducer from "./apply_market_shock_reducer";
 import BuyPropertyReducer from "./buy_property_reducer";
 import BuyVehicleReducer from "./buy_vehicle_reducer";
+import CancelOrderReducer from "./cancel_order_reducer";
 import ClaimQuestRewardReducer from "./claim_quest_reward_reducer";
 import ExecuteTradeReducer from "./execute_trade_reducer";
 import HireEmployeeReducer from "./hire_employee_reducer";
+import PlaceOrderReducer from "./place_order_reducer";
 import RegisterPlayerReducer from "./register_player_reducer";
 import RemixMarketReducer from "./remix_market_reducer";
 import UpdatePlayerInputReducer from "./update_player_input_reducer";
@@ -61,6 +63,7 @@ import OwnedVehicleRow from "./owned_vehicle_table";
 import PlayerRow from "./player_table";
 import PortfolioRow from "./portfolio_table";
 import PropertyCatalogRow from "./property_catalog_table";
+import RestingOrderRow from "./resting_order_table";
 import RichListRow from "./rich_list_table";
 import RichListViewRow from "./rich_list_view_table";
 import VehicleCatalogRow from "./vehicle_catalog_table";
@@ -216,6 +219,20 @@ const tablesSchema = __schema({
       { name: 'property_catalog_property_key_key', constraint: 'unique', columns: ['propertyKey'] },
     ],
   }, PropertyCatalogRow),
+  resting_order: __table({
+    name: 'resting_order',
+    indexes: [
+      { accessor: 'order_id', name: 'resting_order_order_id_idx_btree', algorithm: 'btree', columns: [
+        'orderId',
+      ] },
+      { accessor: 'by_owner', name: 'resting_order_owner_identity_idx_btree', algorithm: 'btree', columns: [
+        'ownerIdentity',
+      ] },
+    ],
+    constraints: [
+      { name: 'resting_order_order_id_key', constraint: 'unique', columns: ['orderId'] },
+    ],
+  }, RestingOrderRow),
   rich_list: __table({
     name: 'rich_list',
     indexes: [
@@ -252,9 +269,11 @@ const reducersSchema = __reducers(
   __reducerSchema("apply_market_shock", ApplyMarketShockReducer),
   __reducerSchema("buy_property", BuyPropertyReducer),
   __reducerSchema("buy_vehicle", BuyVehicleReducer),
+  __reducerSchema("cancel_order", CancelOrderReducer),
   __reducerSchema("claim_quest_reward", ClaimQuestRewardReducer),
   __reducerSchema("execute_trade", ExecuteTradeReducer),
   __reducerSchema("hire_employee", HireEmployeeReducer),
+  __reducerSchema("place_order", PlaceOrderReducer),
   __reducerSchema("register_player", RegisterPlayerReducer),
   __reducerSchema("remix_market", RemixMarketReducer),
   __reducerSchema("update_player_input", UpdatePlayerInputReducer),

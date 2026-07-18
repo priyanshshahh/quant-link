@@ -53,7 +53,7 @@ import { PlayerUI } from './components/PlayerUI';
 import { TradingTerminal } from './components/TradingTerminal';
 import { MentorChat } from './components/MentorChat';
 import { GameHUD } from './components/GameHUD';
-import { MarketAsset, Portfolio, VehicleCatalog, FirmData, Employee, PropertyCatalog, OwnedProperty, RichListEntry, MarketNews } from './generated/types';
+import { MarketAsset, Portfolio, VehicleCatalog, FirmData, Employee, PropertyCatalog, OwnedProperty, RichListEntry, MarketNews, RestingOrder } from './generated/types';
 import { RichList } from './components/RichList';
 import { NewsTicker } from './components/NewsTicker';
 import { MethodologyModal } from './components/MethodologyModal';
@@ -83,6 +83,7 @@ function App() {
   const [isPointerLocked, setIsPointerLocked] = useState(false);
   const [marketAssets, setMarketAssets] = useState<MarketAsset[]>([]);
   const [portfolio, setPortfolio] = useState<Portfolio[]>([]);
+  const [restingOrders, setRestingOrders] = useState<RestingOrder[]>([]);
   const [vehicleCatalog, setVehicleCatalog] = useState<VehicleCatalog[]>([]);
   const [firm, setFirm] = useState<FirmData | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -180,6 +181,13 @@ function App() {
         (p) => p.ownerIdentity.toHexString() === myId
       ));
     };
+    const syncOrders = () => {
+      if (!conn || !identityRef.current) return;
+      const myId = identityRef.current.toHexString();
+      setRestingOrders([...conn.db.resting_order.iter()].filter(
+        (o) => o.ownerIdentity.toHexString() === myId
+      ));
+    };
     const syncVehicles = () => {
       if (!conn) return;
       setVehicleCatalog([...conn.db.vehicle_catalog.iter()]);
@@ -236,6 +244,10 @@ function App() {
     conn.db.portfolio.onInsert((_ctx, _row) => syncPortfolio());
     conn.db.portfolio.onUpdate((_ctx, _old, _new) => syncPortfolio());
     conn.db.portfolio.onDelete((_ctx, _row) => syncPortfolio());
+
+    conn.db.resting_order.onInsert((_ctx, _row) => syncOrders());
+    conn.db.resting_order.onUpdate((_ctx, _old, _new) => syncOrders());
+    conn.db.resting_order.onDelete((_ctx, _row) => syncOrders());
 
     conn.db.vehicle_catalog.onInsert((_ctx, _row) => syncVehicles());
     conn.db.vehicle_catalog.onUpdate((_ctx, _old, _new) => syncVehicles());
@@ -296,6 +308,9 @@ function App() {
          setPortfolio([...conn.db.portfolio.iter()].filter(
            (p) => p.ownerIdentity.toHexString() === myId.toHexString()
          ));
+         setRestingOrders([...conn.db.resting_order.iter()].filter(
+           (o) => o.ownerIdentity.toHexString() === myId.toHexString()
+         ));
          setFirm(conn.db.firm.owner_identity.find(myId) ?? null);
         setEmployees([...conn.db.employee.iter()].filter((e) => e.ownerIdentity.toHexString() === myId.toHexString()));
         setOwnedProperties([...conn.db.owned_property.iter()].filter((p) => p.ownerIdentity.toHexString() === myId.toHexString()));
@@ -328,6 +343,7 @@ function App() {
         "SELECT * FROM player",
         "SELECT * FROM market_asset",
         "SELECT * FROM portfolio",
+        "SELECT * FROM resting_order",
         "SELECT * FROM vehicle_catalog",
         "SELECT * FROM owned_vehicle",
         "SELECT * FROM firm",
@@ -864,6 +880,7 @@ function App() {
               localPlayer={localPlayer}
               marketAssets={marketAssets}
               portfolio={portfolio}
+              restingOrders={restingOrders}
               vehicleCatalog={vehicleCatalog}
               firm={firm}
               employees={employees}

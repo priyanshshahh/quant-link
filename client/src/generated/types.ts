@@ -187,6 +187,18 @@ export const PropertyCatalog = __t.object("PropertyCatalog", {
 });
 export type PropertyCatalog = __Infer<typeof PropertyCatalog>;
 
+export const RestingOrder = __t.object("RestingOrder", {
+  orderId: __t.u64(),
+  ownerIdentity: __t.identity(),
+  ticker: __t.string(),
+  isBuy: __t.bool(),
+  isStop: __t.bool(),
+  shares: __t.f64(),
+  triggerPrice: __t.f64(),
+  createdAt: __t.timestamp(),
+});
+export type RestingOrder = __Infer<typeof RestingOrder>;
+
 export const RichListEntry = __t.object("RichListEntry", {
   rank: __t.u32(),
   identity: __t.identity(),

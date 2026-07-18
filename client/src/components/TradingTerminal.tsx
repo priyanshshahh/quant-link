@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { DbConnection } from '../generated';
 import {
   MarketAsset, Portfolio, PlayerData, VehicleCatalog,
-  FirmData, Employee, PropertyCatalog, OwnedProperty,
+  FirmData, Employee, PropertyCatalog, OwnedProperty, RestingOrder,
 } from '../generated/types';
 import { parseRemixPrompt } from '../services/AI_Market_Events';
 import gameConstants from '../gameConstants.json';
@@ -18,6 +18,7 @@ interface TradingTerminalProps {
   localPlayer: PlayerData;
   marketAssets: MarketAsset[];
   portfolio: Portfolio[];
+  restingOrders: RestingOrder[];
   vehicleCatalog: VehicleCatalog[];
   firm: FirmData | null;
   employees: Employee[];
@@ -27,7 +28,7 @@ interface TradingTerminalProps {
 }
 
 export const TradingTerminal: React.FC<TradingTerminalProps> = ({
-  conn, localPlayer, marketAssets, portfolio, vehicleCatalog,
+  conn, localPlayer, marketAssets, portfolio, restingOrders, vehicleCatalog,
   firm, employees, propertyCatalog, ownedProperties, onClose,
 }) => {
   const [selectedTicker, setSelectedTicker] = useState(marketAssets[0]?.ticker ?? 'AAPL');
@@ -36,6 +37,9 @@ export const TradingTerminal: React.FC<TradingTerminalProps> = ({
   const [activeTab, setActiveTab] = useState<'market' | 'firm' | 'life'>('market');
   const [remixPrompt, setRemixPrompt] = useState('');
   const [remixBusy, setRemixBusy] = useState(false);
+  // Resting order form
+  const [orderKind, setOrderKind] = useState<'limit' | 'stop'>('limit');
+  const [orderTrigger, setOrderTrigger] = useState('');
 
   const REMIX_EXAMPLES = [
     'Retail-driven short squeeze on tech stocks',
@@ -80,6 +84,27 @@ export const TradingTerminal: React.FC<TradingTerminalProps> = ({
     if (!qty || qty <= 0) { setTradeMessage('Enter a valid share quantity.'); return; }
     conn.reducers.executeTrade({ ticker: selectedTicker, shares: qty, isBuy });
     setTradeMessage(`${isBuy ? 'Buy' : 'Sell'} order sent for ${qty} ${selectedTicker}`);
+  };
+
+  const handlePlaceOrder = (isBuy: boolean) => {
+    const qty = parseFloat(shares);
+    const trigger = parseFloat(orderTrigger);
+    if (!qty || qty <= 0) { setTradeMessage('Enter a valid share quantity.'); return; }
+    if (!trigger || trigger <= 0) { setTradeMessage('Enter a valid trigger price.'); return; }
+    conn.reducers.placeOrder({
+      ticker: selectedTicker,
+      isBuy,
+      isStop: orderKind === 'stop',
+      shares: qty,
+      triggerPrice: trigger,
+    });
+    setTradeMessage(`${orderKind === 'stop' ? 'Stop' : 'Limit'} ${isBuy ? 'buy' : 'sell'} placed: ${qty} ${selectedTicker} @ $${trigger.toFixed(2)}`);
+    setOrderTrigger('');
+  };
+
+  const handleCancelOrder = (orderId: bigint) => {
+    conn.reducers.cancelOrder({ orderId });
+    setTradeMessage('Order cancelled.');
   };
 
   const handleHire = (role: string) => {
@@ -176,6 +201,43 @@ export const TradingTerminal: React.FC<TradingTerminalProps> = ({
               <input type="number" min="1" value={shares} onChange={(e) => setShares(e.target.value)} placeholder="Shares" />
               <button className="buy-btn" onClick={() => handleTrade(true)}>Buy</button>
               <button className="sell-btn" onClick={() => handleTrade(false)}>Sell</button>
+            </div>
+
+            {/* ---- Resting limit / stop orders ---- */}
+            <div className="orders-box">
+              <div className="orders-head">
+                <span className="orders-title">Limit &amp; Stop Orders</span>
+                <span className="orders-hint">Fills against the simulated price on a future tick</span>
+              </div>
+              <div className="order-form">
+                <select value={orderKind} onChange={(e) => setOrderKind(e.target.value as 'limit' | 'stop')}>
+                  <option value="limit">Limit</option>
+                  <option value="stop">Stop</option>
+                </select>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={orderTrigger}
+                  onChange={(e) => setOrderTrigger(e.target.value)}
+                  placeholder="Trigger $"
+                />
+                <button className="buy-btn" onClick={() => handlePlaceOrder(true)}>Buy {orderKind}</button>
+                <button className="sell-btn" onClick={() => handlePlaceOrder(false)}>Sell {orderKind}</button>
+              </div>
+              {restingOrders.length > 0 && (
+                <ul className="orders-list">
+                  {restingOrders.map((o) => (
+                    <li key={o.orderId.toString()} className="order-row">
+                      <span className={o.isBuy ? 'order-buy' : 'order-sell'}>
+                        {o.isBuy ? 'BUY' : 'SELL'} {o.isStop ? 'STOP' : 'LIMIT'}
+                      </span>
+                      <span>{o.shares} {o.ticker} @ ${o.triggerPrice.toFixed(2)}</span>
+                      <button className="order-cancel" onClick={() => handleCancelOrder(o.orderId)}>✕</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         )}

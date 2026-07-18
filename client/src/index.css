@@ -403,6 +403,57 @@ body.cursor-locked {
   border-radius: 8px;
 }
 
+/* ---- Resting limit/stop orders ---- */
+.orders-box {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid rgba(0, 212, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.28);
+}
+.orders-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.orders-title { font-weight: 800; letter-spacing: 0.4px; color: #eaeaf4; }
+.orders-hint { font-size: 11px; color: #8a8aa0; }
+.order-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.order-form select,
+.order-form input {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+.order-form input { width: 110px; }
+.orders-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.order-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 7px;
+}
+.order-row .order-buy { color: #00cc66; font-weight: 800; min-width: 78px; }
+.order-row .order-sell { color: #ff4466; font-weight: 800; min-width: 78px; }
+.order-cancel {
+  margin-left: auto;
+  background: rgba(255, 68, 102, 0.18);
+  border: 1px solid rgba(255, 68, 102, 0.35);
+  color: #fff;
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+}
+.order-cancel:hover { background: rgba(255, 68, 102, 0.4); }
+
 .buy-btn {
   background: linear-gradient(90deg, #006633, #00cc66) !important;
   border: none !important;

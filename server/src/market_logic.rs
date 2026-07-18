@@ -6,8 +6,8 @@ use crate::sim_math::{
 };
 use crate::{
     market_asset, market_news, market_regime, market_tick_schedule, owned_vehicle, player,
-    portfolio, vehicle_catalog, MarketAsset, MarketNews, MarketRegime, MarketTickSchedule,
-    OwnedVehicle, Portfolio, VehicleCatalog,
+    portfolio, resting_order, vehicle_catalog, MarketAsset, MarketNews, MarketRegime,
+    MarketTickSchedule, OwnedVehicle, Portfolio, RestingOrder, VehicleCatalog,
 };
 
 const STARTING_CASH: f64 = 100_000.0;
@@ -187,6 +187,9 @@ pub fn process_market_tick(ctx: &ReducerContext, seed: u64) {
 
         ctx.db.market_asset().ticker().update(asset);
     }
+
+    // Fill any resting limit/stop orders the new prices have crossed.
+    process_resting_orders(ctx);
 }
 
 /// Record an AI-generated headline into the public news feed (kept to 12 rows).
@@ -285,31 +288,25 @@ pub fn remix_market(
     Ok(())
 }
 
-pub fn execute_buy(
+/// Buy `shares` of `ticker` for `owner` at an explicit `price`. Owner-
+/// parameterised (not `ctx.sender()`) so both the `execute_trade` reducer and
+/// the resting-order fill path (which runs inside the scheduled market tick, a
+/// different sender) can share the exact same funds/position accounting.
+fn buy_at(
     ctx: &ReducerContext,
-    ticker: String,
+    owner: spacetimedb::Identity,
+    ticker: &str,
     shares: f64,
+    price: f64,
 ) -> Result<(), String> {
-    if shares <= 0.0 {
-        return Err("Share quantity must be positive".to_string());
-    }
-
-    let sender = ctx.sender();
     let mut player = ctx
         .db
         .player()
         .identity()
-        .find(sender)
+        .find(owner)
         .ok_or("Player not found")?;
 
-    let asset = ctx
-        .db
-        .market_asset()
-        .ticker()
-        .find(&ticker)
-        .ok_or("Asset not found")?;
-
-    let total_cost = asset.current_price * shares;
+    let total_cost = price * shares;
     if !rules::can_afford(player.cash_balance, total_cost) {
         return Err(format!(
             "Insufficient funds: need ${:.2}, have ${:.2}",
@@ -320,60 +317,46 @@ pub fn execute_buy(
     player.cash_balance -= total_cost;
     ctx.db.player().identity().update(player);
 
-    if let Some(mut position) = find_position(ctx, sender, &ticker) {
-        position.average_entry_price = rules::weighted_average_price(
-            position.shares,
-            position.average_entry_price,
-            shares,
-            asset.current_price,
-        );
+    if let Some(mut position) = find_position(ctx, owner, ticker) {
+        position.average_entry_price =
+            rules::weighted_average_price(position.shares, position.average_entry_price, shares, price);
         position.shares += shares;
         ctx.db.portfolio().position_id().update(position);
     } else {
         ctx.db.portfolio().insert(Portfolio {
             position_id: 0,
-            owner_identity: sender,
-            ticker,
+            owner_identity: owner,
+            ticker: ticker.to_string(),
             shares,
-            average_entry_price: asset.current_price,
+            average_entry_price: price,
         });
     }
 
     Ok(())
 }
 
-pub fn execute_sell(
+/// Sell `shares` of `ticker` held by `owner` at an explicit `price`. See
+/// `buy_at` for why this is owner-parameterised.
+fn sell_at(
     ctx: &ReducerContext,
-    ticker: String,
+    owner: spacetimedb::Identity,
+    ticker: &str,
     shares: f64,
+    price: f64,
 ) -> Result<(), String> {
-    if shares <= 0.0 {
-        return Err("Share quantity must be positive".to_string());
-    }
-
-    let sender = ctx.sender();
     let mut player = ctx
         .db
         .player()
         .identity()
-        .find(sender)
+        .find(owner)
         .ok_or("Player not found")?;
 
-    let mut position = find_position(ctx, sender, &ticker).ok_or("Position not found")?;
-
+    let mut position = find_position(ctx, owner, ticker).ok_or("Position not found")?;
     if !rules::can_sell(position.shares, shares) {
         return Err("Insufficient shares".to_string());
     }
 
-    let asset = ctx
-        .db
-        .market_asset()
-        .ticker()
-        .find(&ticker)
-        .ok_or("Asset not found")?;
-
-    let proceeds = asset.current_price * shares;
-    player.cash_balance += proceeds;
+    player.cash_balance += price * shares;
     ctx.db.player().identity().update(player);
 
     position.shares -= shares;
@@ -384,6 +367,124 @@ pub fn execute_sell(
     }
 
     Ok(())
+}
+
+pub fn execute_buy(ctx: &ReducerContext, ticker: String, shares: f64) -> Result<(), String> {
+    if shares <= 0.0 {
+        return Err("Share quantity must be positive".to_string());
+    }
+    let asset = ctx
+        .db
+        .market_asset()
+        .ticker()
+        .find(&ticker)
+        .ok_or("Asset not found")?;
+    buy_at(ctx, ctx.sender(), &ticker, shares, asset.current_price)
+}
+
+pub fn execute_sell(ctx: &ReducerContext, ticker: String, shares: f64) -> Result<(), String> {
+    if shares <= 0.0 {
+        return Err("Share quantity must be positive".to_string());
+    }
+    let asset = ctx
+        .db
+        .market_asset()
+        .ticker()
+        .find(&ticker)
+        .ok_or("Asset not found")?;
+    sell_at(ctx, ctx.sender(), &ticker, shares, asset.current_price)
+}
+
+/// Place a resting limit or stop order. `is_stop == false` is a limit order.
+/// The order rests until a market tick moves the price across its trigger, at
+/// which point it fills against the simulated price (see `process_resting_orders`).
+pub fn place_order(
+    ctx: &ReducerContext,
+    ticker: String,
+    is_buy: bool,
+    is_stop: bool,
+    shares: f64,
+    trigger_price: f64,
+) -> Result<(), String> {
+    if shares <= 0.0 {
+        return Err("Share quantity must be positive".to_string());
+    }
+    if !(trigger_price.is_finite() && trigger_price > 0.0) {
+        return Err("Trigger price must be positive".to_string());
+    }
+
+    let sender = ctx.sender();
+    if ctx.db.player().identity().find(sender).is_none() {
+        return Err("Player not found".to_string());
+    }
+
+    let target = ticker.trim().to_uppercase();
+    if ctx.db.market_asset().ticker().find(&target).is_none() {
+        return Err(format!("Unknown ticker '{}'", target));
+    }
+
+    let open = ctx.db.resting_order().by_owner().filter(sender).count();
+    if open >= rules::MAX_RESTING_ORDERS {
+        return Err("Too many open orders — cancel some first".to_string());
+    }
+
+    ctx.db.resting_order().insert(RestingOrder {
+        order_id: 0,
+        owner_identity: sender,
+        ticker: target,
+        is_buy,
+        is_stop,
+        shares,
+        trigger_price,
+        created_at: ctx.timestamp,
+    });
+    Ok(())
+}
+
+/// Cancel one of the caller's resting orders.
+pub fn cancel_order(ctx: &ReducerContext, order_id: u64) -> Result<(), String> {
+    let order = ctx
+        .db
+        .resting_order()
+        .order_id()
+        .find(order_id)
+        .ok_or("Order not found")?;
+    if order.owner_identity != ctx.sender() {
+        return Err("Not your order".to_string());
+    }
+    ctx.db.resting_order().order_id().delete(order_id);
+    Ok(())
+}
+
+/// After prices move each tick, fill every resting order the new price has
+/// crossed. Fills happen at the simulated price (gap-through fills at that
+/// price, not the trigger). Orders are all-or-nothing here — partial fills
+/// against limited liquidity aren't modelled (there is no order book; see the
+/// methodology page). An order that can't fill (e.g. insufficient funds/shares
+/// by the time it triggers) is cancelled rather than left resting forever.
+pub fn process_resting_orders(ctx: &ReducerContext) {
+    let orders: Vec<RestingOrder> = ctx.db.resting_order().iter().collect();
+    for order in orders {
+        let Some(asset) = ctx.db.market_asset().ticker().find(&order.ticker) else {
+            ctx.db.resting_order().order_id().delete(order.order_id);
+            continue;
+        };
+        let price = asset.current_price;
+        if !rules::order_should_fill(order.is_buy, order.is_stop, order.trigger_price, price) {
+            continue;
+        }
+
+        let result = if order.is_buy {
+            buy_at(ctx, order.owner_identity, &order.ticker, order.shares, price)
+        } else {
+            sell_at(ctx, order.owner_identity, &order.ticker, order.shares, price)
+        };
+        if let Err(e) = result {
+            spacetimedb::log::info!("[ORDER] {} triggered but unfillable, cancelling: {}", order.order_id, e);
+        }
+        // Filled or unfillable, the order is consumed either way.
+        ctx.db.resting_order().order_id().delete(order.order_id);
+    }
 }
 
 pub fn buy_vehicle(ctx: &ReducerContext, vehicle_key: String) -> Result<(), String> {

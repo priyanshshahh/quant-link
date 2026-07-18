@@ -146,6 +146,27 @@ pub fn index_from_hash(hash: u64, n: usize) -> usize {
     (hash % n as u64) as usize
 }
 
+/// Maximum resting (limit/stop) orders a player may have open at once.
+pub const MAX_RESTING_ORDERS: usize = 20;
+
+/// Whether a resting order fills when the market reaches `market_price`.
+///
+/// Orders fill against the tick's *simulated* price, so a price that gaps
+/// straight through the trigger still fills (at the simulated price, not the
+/// trigger — there's no intra-tick path to fill along):
+/// - limit buy  fills at or below the limit  (buy cheaply)
+/// - limit sell fills at or above the limit   (sell richly)
+/// - stop buy   triggers on the way up   (breakout / short stop-loss)
+/// - stop sell  triggers on the way down (long stop-loss)
+pub fn order_should_fill(is_buy: bool, is_stop: bool, trigger: f64, market_price: f64) -> bool {
+    match (is_buy, is_stop) {
+        (true, false) => market_price <= trigger,
+        (false, false) => market_price >= trigger,
+        (true, true) => market_price >= trigger,
+        (false, true) => market_price <= trigger,
+    }
+}
+
 /// Per-tick salary for a hireable role, or `None` for an unrecognised role.
 pub fn role_salary(role: &str) -> Option<f64> {
     match role {
@@ -316,5 +337,45 @@ mod tests {
             assert!(index_from_hash(h, 6) < 6);
         }
         assert_eq!(index_from_hash(123, 0), 0); // no panic on empty
+    }
+
+    // ---- resting order fill logic ----------------------------------------
+
+    #[test]
+    fn limit_buy_fills_at_or_below_trigger() {
+        assert!(order_should_fill(true, false, 100.0, 100.0)); // exactly at limit
+        assert!(order_should_fill(true, false, 100.0, 95.0)); // below
+        assert!(!order_should_fill(true, false, 100.0, 100.01)); // above
+    }
+
+    #[test]
+    fn limit_sell_fills_at_or_above_trigger() {
+        assert!(order_should_fill(false, false, 100.0, 100.0));
+        assert!(order_should_fill(false, false, 100.0, 110.0));
+        assert!(!order_should_fill(false, false, 100.0, 99.99));
+    }
+
+    #[test]
+    fn stop_buy_triggers_on_the_way_up() {
+        assert!(order_should_fill(true, true, 100.0, 100.0));
+        assert!(order_should_fill(true, true, 100.0, 105.0));
+        assert!(!order_should_fill(true, true, 100.0, 99.0));
+    }
+
+    #[test]
+    fn stop_sell_triggers_on_the_way_down() {
+        assert!(order_should_fill(false, true, 100.0, 100.0));
+        assert!(order_should_fill(false, true, 100.0, 90.0));
+        assert!(!order_should_fill(false, true, 100.0, 101.0));
+    }
+
+    #[test]
+    fn order_fills_when_price_gaps_straight_through_trigger() {
+        // A stop-sell at 100: price gaps from 120 down to 80 in one tick — it
+        // still fills (against the simulated 80, since there's no path to fill
+        // at exactly 100).
+        assert!(order_should_fill(false, true, 100.0, 80.0));
+        // Symmetric limit-buy gap: limit at 100, price gaps down to 70 -> fills.
+        assert!(order_should_fill(true, false, 100.0, 70.0));
     }
 }

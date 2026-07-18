@@ -96,6 +96,11 @@ export const GameScene: React.FC<GameSceneProps> = ({
 
       {/* Soft contact shadows across the central streets so characters + cars
           read as grounded on the floor (updates every frame as they move). */}
+      {/* frames={60} bakes the contact-shadow pass over the first ~60 frames
+          then freezes it, instead of re-rendering the whole shadow scene every
+          single frame (frames={Infinity}). Moving characters/cars still get
+          real-time shadows from the directional key light; this pass only adds
+          soft ground contact, which is fine to bake once. */}
       <ContactShadows
         position={[0, 0.03, -8]}
         scale={130}
@@ -104,7 +109,7 @@ export const GameScene: React.FC<GameSceneProps> = ({
         far={6}
         opacity={0.65}
         color="#01040a"
-        frames={Infinity}
+        frames={60}
       />
 
       {/* Render Players */}

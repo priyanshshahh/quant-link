@@ -1,7 +1,19 @@
 import React, { useMemo } from 'react';
-import { Box, Cylinder, Text, Float, Billboard } from '@react-three/drei';
+import { Box, Cylinder, Text, Float, Billboard, Instances, Instance } from '@react-three/drei';
 import * as THREE from 'three';
 import { MarketAsset } from '../generated/types';
+
+// Street layout data hoisted so the repeated geometry (palm fronds/trunks, car
+// wheels) can be rendered as InstancedMesh — one draw call each instead of ~150
+// individual meshes (see docs/CODE-AUDIT.md #5).
+const PALM_POSITIONS: [number, number][] = [
+  [-7, -2], [7, -2], [-7, 18], [7, 18], [-7, -22], [7, -22],
+  [70, -20], [70, 0], [70, 20], [70, -40], [-7, 30], [7, 30],
+];
+const FROND_COUNT = 7;
+const WHEEL_OFFSETS: [number, number][] = [
+  [-0.85, 1.3], [0.85, 1.3], [-0.85, -1.3], [0.85, -1.3],
+];
 
 // ---------------------------------------------------------------------------
 // QuantLink — GTA Vice City–style financial district
@@ -82,12 +94,7 @@ function Car({ x, z, rot = 0, color }: { x: number; z: number; rot?: number; col
       <Box args={[1.6, 0.5, 2]} position={[0, 1.05, -0.2]} castShadow>
         <meshStandardMaterial color="#05070d" metalness={0.95} roughness={0.08} envMapIntensity={1.8} />
       </Box>
-      {/* wheels */}
-      {[[-0.85, 1.3], [0.85, 1.3], [-0.85, -1.3], [0.85, -1.3]].map(([wx, wz], i) => (
-        <Cylinder key={i} args={[0.35, 0.35, 0.3, 12]} rotation={[0, 0, Math.PI / 2]} position={[wx, 0.35, wz]}>
-          <meshStandardMaterial color="#0a0a0a" metalness={0.5} roughness={0.4} />
-        </Cylinder>
-      ))}
+      {/* wheels are rendered separately as a single InstancedMesh (see CarWheels) */}
       {/* tail lights (HDR for bloom) */}
       <Box args={[1.6, 0.18, 0.1]} position={[0, 0.6, 2]}>
         <meshStandardMaterial color="#ff1133" emissive="#ff1133" emissiveIntensity={4} toneMapped={false} />
@@ -100,22 +107,57 @@ function Car({ x, z, rot = 0, color }: { x: number; z: number; rot?: number; col
   );
 }
 
-function PalmTree({ x, z }: { x: number; z: number }) {
+// All palm trunks rendered as a single InstancedMesh.
+function PalmTrunks({ positions }: { positions: [number, number][] }) {
   return (
-    <group position={[x, 0, z]}>
-      <Cylinder args={[0.18, 0.28, 4.5, 8]} position={[0, 2.25, 0]} castShadow>
-        <meshStandardMaterial color="#6b4f2a" roughness={1} />
-      </Cylinder>
-      {Array.from({ length: 7 }).map((_, i) => {
-        const a = (i / 7) * Math.PI * 2;
-        return (
-          <mesh key={i} position={[Math.cos(a) * 1.1, 4.4, Math.sin(a) * 1.1]} rotation={[Math.PI / 5, a, 0]} castShadow>
-            <coneGeometry args={[0.35, 2.4, 4]} />
-            <meshStandardMaterial color="#1f8b2f" roughness={0.8} />
-          </mesh>
-        );
-      })}
-    </group>
+    <Instances castShadow>
+      <cylinderGeometry args={[0.18, 0.28, 4.5, 8]} />
+      <meshStandardMaterial color="#6b4f2a" roughness={1} />
+      {positions.map(([x, z], i) => (
+        <Instance key={i} position={[x, 2.25, z]} />
+      ))}
+    </Instances>
+  );
+}
+
+// All palm fronds (7 per palm) rendered as a single InstancedMesh. The drei
+// <Instance> composes each frond's world matrix, so absolute positions work.
+function PalmFronds({ positions }: { positions: [number, number][] }) {
+  return (
+    <Instances castShadow>
+      <coneGeometry args={[0.35, 2.4, 4]} />
+      <meshStandardMaterial color="#1f8b2f" roughness={0.8} />
+      {positions.flatMap(([x, z], p) =>
+        Array.from({ length: FROND_COUNT }).map((_, i) => {
+          const a = (i / FROND_COUNT) * Math.PI * 2;
+          return (
+            <Instance
+              key={`${p}-${i}`}
+              position={[x + Math.cos(a) * 1.1, 4.4, z + Math.sin(a) * 1.1]}
+              rotation={[Math.PI / 5, a, 0]}
+            />
+          );
+        }),
+      )}
+    </Instances>
+  );
+}
+
+// All car wheels as one InstancedMesh. Each wheel sits under a group carrying
+// its car's position + rotation, so the composed world matrix is correct.
+function CarWheels({ cars }: { cars: { x: number; z: number; rot: number }[] }) {
+  return (
+    <Instances castShadow>
+      <cylinderGeometry args={[0.35, 0.35, 0.3, 12]} />
+      <meshStandardMaterial color="#0a0a0a" metalness={0.5} roughness={0.4} />
+      {cars.map((c, ci) => (
+        <group key={ci} position={[c.x, 0, c.z]} rotation={[0, c.rot, 0]}>
+          {WHEEL_OFFSETS.map(([wx, wz], wi) => (
+            <Instance key={wi} position={[wx, 0.35, wz]} rotation={[0, 0, Math.PI / 2]} />
+          ))}
+        </group>
+      ))}
+    </Instances>
   );
 }
 
@@ -129,7 +171,9 @@ function StreetLamp({ x, z }: { x: number; z: number }) {
         <sphereGeometry args={[0.25]} />
         <meshStandardMaterial color="#ffd9a0" emissive="#ffb347" emissiveIntensity={2.5} toneMapped={false} />
       </mesh>
-      <pointLight position={[0, 6, 0]} intensity={18} distance={16} color="#ffb347" />
+      {/* No per-lamp pointLight: 8 street lamps = 8 dynamic lights was a real
+          forward-lighting cost. The emissive head + Bloom carries the glow;
+          only the 3 landmark accent lights remain dynamic. */}
     </group>
   );
 }
@@ -329,11 +373,13 @@ export const FinancialCity: React.FC<FinancialCityProps> = ({ marketAssets }) =>
 
       {/* ===================== CARS ===================== */}
       {cars.map((c, i) => <Car key={`car-${i}`} {...c} />)}
+      {/* All car wheels in a single instanced draw call */}
+      <CarWheels cars={cars} />
 
       {/* ===================== PALMS + LAMPS ===================== */}
-      {[[-7, -2], [7, -2], [-7, 18], [7, 18], [-7, -22], [7, -22], [70, -20], [70, 0], [70, 20], [70, -40], [-7, 30], [7, 30]].map(([x, z], i) => (
-        <PalmTree key={`palm-${i}`} x={x} z={z} />
-      ))}
+      {/* Trunks + fronds each collapse to one InstancedMesh */}
+      <PalmTrunks positions={PALM_POSITIONS} />
+      <PalmFronds positions={PALM_POSITIONS} />
       {[[-6.5, -12], [6.5, -12], [-6.5, 2], [6.5, 2], [-6.5, 16], [6.5, 16], [-6.5, -28], [6.5, -28]].map(([x, z], i) => (
         <StreetLamp key={`lamp-${i}`} x={x} z={z} />
       ))}

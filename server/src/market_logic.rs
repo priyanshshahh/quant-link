@@ -1,5 +1,6 @@
 use spacetimedb::{ReducerContext, Table};
 
+use crate::rules;
 use crate::sim_math::{gbm_step, ReplayRng};
 use crate::{
     market_asset, market_news, market_tick_schedule, owned_vehicle, player, portfolio,
@@ -123,7 +124,7 @@ fn push_news(ctx: &ReducerContext, headline: String, sentiment: i32) {
     ctx.db.market_news().insert(MarketNews {
         news_id: 0,
         headline,
-        sentiment: sentiment.clamp(-10, 10),
+        sentiment: rules::clamp_sentiment(sentiment),
         created_at: ctx.timestamp,
     });
 
@@ -138,7 +139,7 @@ fn push_news(ctx: &ReducerContext, headline: String, sentiment: i32) {
 /// Record an AI-generated headline and violently swing the market in the
 /// direction (and magnitude) of its sentiment score (-10 crash .. +10 rally).
 pub fn apply_market_shock(ctx: &ReducerContext, headline: String, sentiment: i32) {
-    let s = sentiment.clamp(-10, 10);
+    let s = rules::clamp_sentiment(sentiment);
 
     push_news(ctx, headline, s);
 
@@ -153,7 +154,7 @@ pub fn apply_market_shock(ctx: &ReducerContext, headline: String, sentiment: i32
 
         asset.previous_price = asset.current_price;
         asset.current_price = (asset.current_price * factor).max(0.01);
-        asset.volatility = (asset.volatility + vol_spike).min(0.95);
+        asset.volatility = rules::clamp_asset_volatility(asset.volatility + vol_spike);
 
         ctx.db.market_asset().ticker().update(asset);
     }
@@ -170,17 +171,13 @@ pub fn remix_market(
     drift_modifier: f64,
     volatility_modifier: f64,
     headline: String,
-) {
-    let drift_mod = drift_modifier.clamp(-0.5, 0.5);
-    let vol_mod = volatility_modifier.clamp(-0.5, 0.8);
+) -> Result<(), String> {
+    let drift_mod = rules::clamp_drift_mod(drift_modifier);
+    let vol_mod = rules::clamp_vol_mod(volatility_modifier);
     let sentiment = (drift_mod * 50.0).clamp(-10.0, 10.0) as i32;
 
-    if !headline.trim().is_empty() {
-        push_news(ctx, headline, sentiment);
-    }
-
     // Immediate price jolt proportional to drift (capped at ±25%).
-    let price_jolt = 1.0 + drift_mod.clamp(-0.25, 0.25);
+    let price_jolt = rules::remix_price_jolt(drift_mod);
 
     let target = ticker.trim().to_uppercase();
     let apply_to_all = target.is_empty() || target == "ALL" || target == "MARKET";
@@ -196,13 +193,26 @@ pub fn remix_market(
             .collect()
     };
 
+    // A specific ticker that matches nothing is a client mistake: report it
+    // rather than silently no-op'ing (the reducer used to return `()`, so the
+    // player got no feedback that their prompt named an unknown symbol).
+    if assets.is_empty() {
+        return Err(format!("Unknown ticker '{}' — no market moved", target));
+    }
+
+    if !headline.trim().is_empty() {
+        push_news(ctx, headline, sentiment);
+    }
+
     for mut asset in assets {
-        asset.drift = (asset.drift + drift_mod).clamp(-0.6, 0.8);
-        asset.volatility = (asset.volatility + vol_mod).clamp(0.05, 0.95);
+        asset.drift = rules::clamp_asset_drift(asset.drift + drift_mod);
+        asset.volatility = rules::clamp_asset_volatility(asset.volatility + vol_mod);
         asset.previous_price = asset.current_price;
         asset.current_price = (asset.current_price * price_jolt).max(0.01);
         ctx.db.market_asset().ticker().update(asset);
     }
+
+    Ok(())
 }
 
 pub fn execute_buy(
@@ -230,7 +240,7 @@ pub fn execute_buy(
         .ok_or("Asset not found")?;
 
     let total_cost = asset.current_price * shares;
-    if player.cash_balance < total_cost {
+    if !rules::can_afford(player.cash_balance, total_cost) {
         return Err(format!(
             "Insufficient funds: need ${:.2}, have ${:.2}",
             total_cost, player.cash_balance
@@ -241,11 +251,13 @@ pub fn execute_buy(
     ctx.db.player().identity().update(player);
 
     if let Some(mut position) = find_position(ctx, sender, &ticker) {
-        let total_shares = position.shares + shares;
-        position.average_entry_price = ((position.average_entry_price * position.shares)
-            + (asset.current_price * shares))
-            / total_shares;
-        position.shares = total_shares;
+        position.average_entry_price = rules::weighted_average_price(
+            position.shares,
+            position.average_entry_price,
+            shares,
+            asset.current_price,
+        );
+        position.shares += shares;
         ctx.db.portfolio().position_id().update(position);
     } else {
         ctx.db.portfolio().insert(Portfolio {
@@ -279,7 +291,7 @@ pub fn execute_sell(
 
     let mut position = find_position(ctx, sender, &ticker).ok_or("Position not found")?;
 
-    if position.shares < shares {
+    if !rules::can_sell(position.shares, shares) {
         return Err("Insufficient shares".to_string());
     }
 
@@ -295,7 +307,7 @@ pub fn execute_sell(
     ctx.db.player().identity().update(player);
 
     position.shares -= shares;
-    if position.shares < 0.0001 {
+    if rules::is_dust_position(position.shares) {
         ctx.db.portfolio().position_id().delete(position.position_id);
     } else {
         ctx.db.portfolio().position_id().update(position);
@@ -320,7 +332,7 @@ pub fn buy_vehicle(ctx: &ReducerContext, vehicle_key: String) -> Result<(), Stri
         .find(&vehicle_key)
         .ok_or("Vehicle not found")?;
 
-    if player.cash_balance < catalog.price {
+    if !rules::can_afford(player.cash_balance, catalog.price) {
         return Err(format!(
             "Insufficient funds: need ${:.0}, have ${:.2}",
             catalog.price, player.cash_balance

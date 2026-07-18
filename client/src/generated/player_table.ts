@@ -41,4 +41,5 @@ export default __t.row({
   color: __t.string(),
   cashBalance: __t.f64().name("cash_balance"),
   knowledgeLevel: __t.u32().name("knowledge_level"),
+  lastInputAt: __t.timestamp().name("last_input_at"),
 });

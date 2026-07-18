@@ -78,6 +78,13 @@ export const LoggedOutPlayerData = __t.object("LoggedOutPlayerData", {
 });
 export type LoggedOutPlayerData = __Infer<typeof LoggedOutPlayerData>;
 
+export const MarketActionGuard = __t.object("MarketActionGuard", {
+  identity: __t.identity(),
+  lastShockMicros: __t.i64(),
+  lastRemixMicros: __t.i64(),
+});
+export type MarketActionGuard = __Infer<typeof MarketActionGuard>;
+
 export const MarketAsset = __t.object("MarketAsset", {
   ticker: __t.string(),
   companyName: __t.string(),
@@ -148,6 +155,7 @@ export const PlayerData = __t.object("PlayerData", {
   color: __t.string(),
   cashBalance: __t.f64(),
   knowledgeLevel: __t.u32(),
+  lastInputAt: __t.timestamp(),
 });
 export type PlayerData = __Infer<typeof PlayerData>;
 

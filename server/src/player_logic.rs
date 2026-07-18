@@ -127,15 +127,24 @@ pub fn calculate_new_position(position: &Vector3, rotation: &Vector3, input: &In
 //     }
 // }
 
-// Update player state based on input
-pub fn update_input_state(player: &mut PlayerData, input: InputState, client_rot: Vector3, client_animation: String) {
-    // Calculate movement & animation based on RECEIVED input
-    let delta_time_estimate: f32 = 1.0 / 20.0; // Match client input send rate (~20Hz)
+// Update player state based on input.
+//
+// `dt` is the server-measured, clamped elapsed time since this player's last
+// input (see `rules::clamp_input_dt` / `lib::update_player_input`), NOT a fixed
+// 1/20s assumption — this is what makes movement speed independent of how often
+// the client actually sends, closing the speed-hack vector.
+pub fn update_input_state(
+    player: &mut PlayerData,
+    input: InputState,
+    client_rot: Vector3,
+    client_animation: String,
+    dt: f32,
+) {
     let new_position = calculate_new_position(
         &player.position,
         &client_rot, // Use client rotation for direction calc
         &input,
-        delta_time_estimate
+        dt,
     );
 
     // Update player state

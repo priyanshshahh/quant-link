@@ -3,6 +3,7 @@ mod firm_logic;
 mod market_logic;
 mod player_logic;
 mod quest_logic;
+mod rules;
 mod sim_math;
 
 use spacetimedb::{AnonymousViewContext, Identity, ReducerContext, ScheduleAt, Table, Timestamp};
@@ -33,6 +34,23 @@ pub struct PlayerData {
     color: String,
     cash_balance: f64,
     knowledge_level: u32,
+    // Server-side wall-clock timestamp of the last accepted input, used to
+    // measure real elapsed time between calls so movement speed can't be
+    // inflated by sending faster than the intended ~20Hz (see `rules.rs`).
+    last_input_at: Timestamp,
+}
+
+/// Per-identity anti-abuse guard for the market-moving reducers. Stores the
+/// wall-clock micros of the caller's last shock/remix so a server-side cooldown
+/// can reject stacking calls (see `rules::cooldown_elapsed`). Not public — it's
+/// purely internal enforcement state.
+#[spacetimedb::table(accessor = market_action_guard)]
+#[derive(Clone)]
+pub struct MarketActionGuard {
+    #[primary_key]
+    identity: Identity,
+    last_shock_micros: i64,
+    last_remix_micros: i64,
 }
 
 #[spacetimedb::table(accessor = logged_out_player)]
@@ -366,6 +384,7 @@ pub fn register_player(ctx: &ReducerContext, username: String, character_class: 
             color: assigned_color,
             cash_balance: logged_out_player.cash_balance,
             knowledge_level: logged_out_player.knowledge_level,
+            last_input_at: ctx.timestamp,
         };
         ctx.db.player().insert(rejoining_player);
         firm_logic::ensure_firm(ctx, player_identity, &logged_out_player.username);
@@ -396,6 +415,7 @@ pub fn register_player(ctx: &ReducerContext, username: String, character_class: 
             color: assigned_color,
             cash_balance: market_logic::default_cash(),
             knowledge_level: 0,
+            last_input_at: ctx.timestamp,
         });
         firm_logic::ensure_firm(ctx, player_identity, &firm_name);
     }
@@ -410,7 +430,17 @@ pub fn update_player_input(
     client_animation: String,
 ) {
     if let Some(mut player) = ctx.db.player().identity().find(ctx.sender()) {
-        player_logic::update_input_state(&mut player, input, client_rot, client_animation);
+        // Measure real elapsed time since this player's last accepted input and
+        // clamp it to a safe movement dt. This is the anti-speed-hack: a client
+        // spamming faster than 20Hz gets a proportionally tiny dt per call
+        // instead of a fixed 1/20s, so it can't outrun honest clients.
+        let now_micros = ctx.timestamp.to_micros_since_unix_epoch();
+        let last_micros = player.last_input_at.to_micros_since_unix_epoch();
+        let elapsed_secs = (now_micros - last_micros) as f64 / 1_000_000.0;
+        let dt = rules::clamp_input_dt(elapsed_secs, rules::INPUT_TICK_SECONDS) as f32;
+
+        player_logic::update_input_state(&mut player, input, client_rot, client_animation, dt);
+        player.last_input_at = ctx.timestamp;
         ctx.db.player().identity().update(player);
     }
 }
@@ -476,18 +506,70 @@ pub fn claim_quest_reward(ctx: &ReducerContext, quest_key: String) -> Result<(),
     quest_logic::claim_quest_reward(ctx, quest_key)
 }
 
+/// Read the caller's market-action guard row (last shock/remix micros),
+/// defaulting to the "never acted" sentinel (0) if none exists yet.
+fn market_guard_for(ctx: &ReducerContext, identity: Identity) -> MarketActionGuard {
+    ctx.db
+        .market_action_guard()
+        .identity()
+        .find(identity)
+        .unwrap_or(MarketActionGuard {
+            identity,
+            last_shock_micros: 0,
+            last_remix_micros: 0,
+        })
+}
+
+/// Persist an updated guard row (insert-or-update).
+fn save_market_guard(ctx: &ReducerContext, guard: MarketActionGuard) {
+    if ctx
+        .db
+        .market_action_guard()
+        .identity()
+        .find(guard.identity)
+        .is_some()
+    {
+        ctx.db.market_action_guard().identity().update(guard);
+    } else {
+        ctx.db.market_action_guard().insert(guard);
+    }
+}
+
 /// Apply an AI-generated market event. `sentiment` ranges from -10 (crash) to
 /// +10 (rally). The event is recorded to the public `market_news` feed and
 /// instantly jolts every asset's price + volatility so all connected traders
 /// must react in real time.
+///
+/// Rate-limited per identity (`rules::SHOCK_COOLDOWN_MICROS`): the reducer is
+/// callable directly over the wire by any client, so without a server-side
+/// cooldown a single misbehaving client could stack the clamped-per-call jolt
+/// to move the market arbitrarily far in seconds.
 #[spacetimedb::reducer]
-pub fn apply_market_shock(ctx: &ReducerContext, headline: String, sentiment: i32) {
+pub fn apply_market_shock(
+    ctx: &ReducerContext,
+    headline: String,
+    sentiment: i32,
+) -> Result<(), String> {
+    let now = ctx.timestamp.to_micros_since_unix_epoch();
+    let mut guard = market_guard_for(ctx, ctx.sender());
+    if !rules::cooldown_elapsed(guard.last_shock_micros, now, rules::SHOCK_COOLDOWN_MICROS) {
+        return Err("Market shock on cooldown — slow down".to_string());
+    }
+
     market_logic::apply_market_shock(ctx, headline, sentiment);
+
+    guard.last_shock_micros = now;
+    save_market_guard(ctx, guard);
+    Ok(())
 }
 
 /// Prompt-to-game "Remix" engine. The client AI parses a player's prompt into
 /// structured market parameters and calls this to mutate the live simulation,
 /// which SpacetimeDB broadcasts to every connected trader.
+///
+/// Rate-limited per identity (`rules::REMIX_COOLDOWN_MICROS`), same rationale as
+/// `apply_market_shock`. Also surfaces an error when the ticker matches no asset
+/// so the client can tell the player instead of the call silently no-op'ing.
 #[spacetimedb::reducer]
 pub fn remix_market(
     ctx: &ReducerContext,
@@ -495,6 +577,16 @@ pub fn remix_market(
     drift_modifier: f64,
     volatility_modifier: f64,
     headline: String,
-) {
-    market_logic::remix_market(ctx, ticker, drift_modifier, volatility_modifier, headline);
+) -> Result<(), String> {
+    let now = ctx.timestamp.to_micros_since_unix_epoch();
+    let mut guard = market_guard_for(ctx, ctx.sender());
+    if !rules::cooldown_elapsed(guard.last_remix_micros, now, rules::REMIX_COOLDOWN_MICROS) {
+        return Err("Remix on cooldown — slow down".to_string());
+    }
+
+    market_logic::remix_market(ctx, ticker, drift_modifier, volatility_modifier, headline)?;
+
+    guard.last_remix_micros = now;
+    save_market_guard(ctx, guard);
+    Ok(())
 }

@@ -1,5 +1,6 @@
 use spacetimedb::{Identity, ReducerContext, Table};
 
+use crate::rules;
 use crate::{
     employee, firm, market_asset, owned_property, player, portfolio, property_catalog, rich_list,
     Employee, FirmData, OwnedProperty, PlayerData, PropertyCatalog, RichListEntry,
@@ -94,20 +95,24 @@ pub fn hire_employee(ctx: &ReducerContext, role: String) -> Result<(), String> {
         .filter(sender)
         .count();
 
-    if employee_count >= 8 + (firm.tier * 4) as usize {
+    if employee_count >= rules::headcount_cap(firm.tier) {
         return Err("Max headcount reached. Upgrade your firm tier.".to_string());
     }
 
-    let (salary, alpha, rep_effect, risk_effect, name) = match role.as_str() {
-        "trader" => (80.0, 0.0003, 1.0, 2.0, random_name(1)),
-        "researcher" => (65.0, 0.0005, 2.0, -1.0, random_name(2)),
-        "compliance" => (55.0, 0.0, 3.0, -5.0, random_name(3)),
-        "engineer" => (90.0, 0.0002, 1.5, 0.0, random_name(4)),
-        _ => return Err("Invalid role. Choose: trader, researcher, compliance, engineer".to_string()),
+    // Salary is the single source of truth in `rules::role_salary`, which also
+    // rejects unknown roles; the per-role alpha/reputation/risk deltas stay here.
+    let salary = rules::role_salary(&role)
+        .ok_or("Invalid role. Choose: trader, researcher, compliance, engineer")?;
+    let (alpha, rep_effect, risk_effect, name) = match role.as_str() {
+        "trader" => (0.0003, 1.0, 2.0, random_name(1)),
+        "researcher" => (0.0005, 2.0, -1.0, random_name(2)),
+        "compliance" => (0.0, 3.0, -5.0, random_name(3)),
+        "engineer" => (0.0002, 1.5, 0.0, random_name(4)),
+        _ => unreachable!("role validated by rules::role_salary above"),
     };
 
     let signing_bonus = salary * 10.0;
-    if player.cash_balance < signing_bonus {
+    if !rules::can_afford(player.cash_balance, signing_bonus) {
         return Err(format!("Need ${:.0} signing bonus to hire", signing_bonus));
     }
 
@@ -148,7 +153,7 @@ pub fn buy_property(ctx: &ReducerContext, property_key: String) -> Result<(), St
         .find(&property_key)
         .ok_or("Property not found")?;
 
-    if catalog.price > 0.0 && player.cash_balance < catalog.price {
+    if catalog.price > 0.0 && !rules::can_afford(player.cash_balance, catalog.price) {
         return Err("Insufficient funds".to_string());
     }
 
@@ -224,7 +229,7 @@ pub fn upgrade_firm(ctx: &ReducerContext) -> Result<(), String> {
             net_worth_req, net_worth
         ));
     }
-    if player.cash_balance < upgrade_cost {
+    if !rules::can_afford(player.cash_balance, upgrade_cost) {
         return Err(format!("Need ${:.0} cash for upgrade", upgrade_cost));
     }
 

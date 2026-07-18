@@ -239,27 +239,3 @@ export const DebugPanel: React.FC<DebugPanelProps> = ({
     </div>
   );
 };
-
-// Basic inline styles for the panel
-const styles: { [key: string]: React.CSSProperties } = {
-  debugPanel: {
-    position: 'absolute',
-    top: '10px',
-    left: '10px',
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    color: 'white',
-    padding: '10px',
-    borderRadius: '5px',
-    fontFamily: 'monospace',
-    fontSize: '12px',
-    maxWidth: '400px',
-    zIndex: 100,
-  },
-  playerList: {
-    listStyle: 'none',
-    padding: '0',
-    margin: '5px 0 0 0',
-    maxHeight: '150px', 
-    overflowY: 'auto'
-  }
-};

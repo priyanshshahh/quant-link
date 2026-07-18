@@ -59,6 +59,7 @@ import { NewsTicker } from './components/NewsTicker';
 import { QuestLog } from './components/QuestLog';
 import { generateMarketEvent } from './services/AI_Market_Events';
 import { DEMO_DURATION_MS, runDemoTimeline } from './demoTimeline';
+import { dlog, dwarn, derror } from './debug';
 
 let conn: DbConnection | null = null;
 
@@ -128,10 +129,10 @@ function App() {
   // --- Table Callbacks/Subscription Functions ---
   const registerTableCallbacks = useCallback(() => {
     if (!conn) return;
-    console.log("Registering table callbacks...");
+    dlog("Registering table callbacks...");
 
     conn.db.player.onInsert((_ctx: EventContext, player: PlayerData) => {
-        console.log("Player inserted (callback):", player.identity.toHexString());
+        dlog("Player inserted (callback):", player.identity.toHexString());
         setPlayers((prev: ReadonlyMap<string, PlayerData>) => new Map(prev).set(player.identity.toHexString(), player));
         if (identityRef.current && player.identity.toHexString() === identityRef.current.toHexString()) {
             setLocalPlayer(player);
@@ -153,7 +154,7 @@ function App() {
     });
 
     conn.db.player.onDelete((_ctx: EventContext, player: PlayerData) => {
-        console.log("Player deleted (callback):", player.identity.toHexString());
+        dlog("Player deleted (callback):", player.identity.toHexString());
         setPlayers((prev: ReadonlyMap<string, PlayerData>) => {
             const newMap = new Map(prev);
             newMap.delete(player.identity.toHexString());
@@ -253,11 +254,11 @@ function App() {
     conn.db.owned_vehicle.onInsert((_ctx, _row) => syncOwnedVehicles());
     conn.db.owned_vehicle.onDelete((_ctx, _row) => syncOwnedVehicles());
 
-    console.log("Table callbacks registered.");
+    dlog("Table callbacks registered.");
   }, []);
 
   const onSubscriptionApplied = useCallback(() => {
-     console.log("Subscription applied successfully.");
+     dlog("Subscription applied successfully.");
      setPlayers((prev: ReadonlyMap<string, PlayerData>) => {
          if (prev.size === 0 && conn) {
              const currentPlayers = new Map<string, PlayerData>();
@@ -301,13 +302,13 @@ function App() {
   }, []);
 
   const onSubscriptionError = useCallback((error: any) => {
-      console.error("Subscription error:", error);
+      derror("Subscription error:", error);
       setStatusMessage(`Subscription Error: ${error?.message || error}`);
   }, []);
 
   const subscribeToTables = useCallback(() => {
     if (!conn) return;
-    console.log("Subscribing to tables...");
+    dlog("Subscribing to tables...");
     conn.subscriptionBuilder()
       .onApplied(onSubscriptionApplied)
       .onError(onSubscriptionError)
@@ -332,7 +333,7 @@ function App() {
       const button = (event.target as HTMLElement).closest('.interactive-button');
       if (button) {
           event.preventDefault();
-          console.log(`[CLIENT] Button click detected: ${button.getAttribute('data-action')}`);
+          dlog(`[CLIENT] Button click detected: ${button.getAttribute('data-action')}`);
       }
   }, []);
 
@@ -483,7 +484,7 @@ function App() {
   // --- Listener Setup/Removal Functions ---
   const handlePointerLockChange = useCallback(() => {
     setIsPointerLocked(document.pointerLockElement === document.body);
-    console.log("Pointer Lock Changed: ", document.pointerLockElement === document.body);
+    dlog("Pointer Lock Changed: ", document.pointerLockElement === document.body);
   }, []);
 
   const setupInputListeners = useCallback(() => {
@@ -493,7 +494,7 @@ function App() {
       window.addEventListener('mouseup', handleMouseUp);
       window.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('pointerlockchange', handlePointerLockChange);
-      console.log("Input listeners added.");
+      dlog("Input listeners added.");
   }, [handleKeyDown, handleKeyUp, handleMouseDown, handleMouseUp, handleMouseMove, handlePointerLockChange]);
 
   const removeInputListeners = useCallback(() => {
@@ -503,17 +504,17 @@ function App() {
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('pointerlockchange', handlePointerLockChange);
-      console.log("Input listeners removed.");
+      dlog("Input listeners removed.");
   }, [handleKeyDown, handleKeyUp, handleMouseDown, handleMouseUp, handleMouseMove, handlePointerLockChange]);
 
   const setupDelegatedListeners = useCallback(() => {
       document.body.addEventListener('click', handleDelegatedClick, true);
-      console.log("Delegated listener added to body.");
+      dlog("Delegated listener added to body.");
   }, [handleDelegatedClick]);
 
   const removeDelegatedListeners = useCallback(() => {
       document.body.removeEventListener('click', handleDelegatedClick, true);
-      console.log("Delegated listener removed from body.");
+      dlog("Delegated listener removed from body.");
   }, [handleDelegatedClick]);
 
   // --- Game Loop Effect (throttled to ~20Hz, uses stable ref to avoid restarts) ---
@@ -538,13 +539,13 @@ function App() {
       };
 
       if (connected && !animationFrameIdRef.current) {
-          console.log("[CLIENT] Starting game loop.");
+          dlog("[CLIENT] Starting game loop.");
           animationFrameIdRef.current = requestAnimationFrame(gameLoop);
       }
 
       return () => {
           if (animationFrameIdRef.current) {
-              console.log("[CLIENT] Stopping game loop.");
+              dlog("[CLIENT] Stopping game loop.");
               cancelAnimationFrame(animationFrameIdRef.current);
               animationFrameIdRef.current = null;
           }
@@ -564,9 +565,9 @@ function App() {
 
   // --- Connection Effect Hook ---
   useEffect(() => {
-    console.log("Running Connection Effect Hook...");
+    dlog("Running Connection Effect Hook...");
     if (conn) {
-        console.log("Connection already established, skipping setup.");
+        dlog("Connection already established, skipping setup.");
          if (connected) {
              setupInputListeners();
              setupDelegatedListeners();
@@ -582,10 +583,10 @@ function App() {
         ? `wss://${dbHost.replace(/^https?:\/\//, "")}`
         : `ws://${dbHost.replace(/^https?:\/\//, "")}`;
 
-    console.log(`Connecting to SpacetimeDB at ${dbUri}, database: ${dbName}...`);
+    dlog(`Connecting to SpacetimeDB at ${dbUri}, database: ${dbName}...`);
 
     const onConnect = (connection: DbConnection, id: Identity, _token: string) => {
-      console.log("Connected!");
+      dlog("Connected!");
       conn = connection;
       identityRef.current = id;
       connectedRef.current = true;
@@ -610,7 +611,7 @@ function App() {
 
     const onDisconnect = (_ctx: ErrorContext, reason?: Error | null) => {
       const reasonStr = reason ? reason.message : "No reason given";
-      console.log("onDisconnect triggered:", reasonStr);
+      dlog("onDisconnect triggered:", reasonStr);
       setStatusMessage(`Disconnected: ${reasonStr}`);
       conn = null;
       identityRef.current = null;
@@ -631,7 +632,7 @@ function App() {
       .build();
 
     return () => {
-      console.log("Cleaning up connection effect - removing listeners.");
+      dlog("Cleaning up connection effect - removing listeners.");
       removeInputListeners();
       removeDelegatedListeners();
     };
@@ -651,9 +652,9 @@ function App() {
         const event = await generateMarketEvent();
         if (cancelled || !conn) return;
         conn.reducers.applyMarketShock({ headline: event.headline, sentiment: event.sentiment });
-        console.log(`[AI Market Events] (${event.source}) ${event.headline} [${event.sentiment}]`);
+        dlog(`[AI Market Events] (${event.source}) ${event.headline} [${event.sentiment}]`);
       } catch (err) {
-        console.warn('[AI Market Events] failed to apply shock:', err);
+        dwarn('[AI Market Events] failed to apply shock:', err);
       }
     };
 
@@ -730,10 +731,10 @@ function App() {
   // --- handleJoinGame ---
   const handleJoinGame = (username: string, characterClass: string) => {
     if (!conn) {
-        console.error("Cannot join game, not connected.");
+        derror("Cannot join game, not connected.");
         return;
     }
-    console.log(`Registering as ${username} (${characterClass})...`);
+    dlog(`Registering as ${username} (${characterClass})...`);
     conn.reducers.registerPlayer({ username, characterClass });
     setShowJoinDialog(false);
   };

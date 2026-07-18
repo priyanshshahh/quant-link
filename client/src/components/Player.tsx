@@ -31,12 +31,13 @@
  * - Server socket handlers: For network state synchronization
  */
 
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useAnimations, Html, Sphere } from '@react-three/drei';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { Html, Sphere } from '@react-three/drei';
 import { PlayerData, InputState } from '../generated/types';
+import { loadCharacterAssets, instantiateCharacter } from './playerAssets';
+import { dlog, dwarn, derror } from '../debug';
 
 // Define animation names for reuse
 const ANIMATIONS = {
@@ -128,20 +129,12 @@ export const Player: React.FC<PlayerProps> = ({
     playerFacingRotation: 0 // Store player's facing direction when entering orbital mode
   });
   
-  // Ref to track if animations have been loaded already to prevent multiple loading attempts
-  const animationsLoadedRef = useRef(false);
-  
-  // Main character model path
-  const mainModelPath = characterClass === 'Paladin' 
-    ? '/models/paladin/paladin.fbx'
-    : '/models/wizard/wizard.fbx';
-
   // --- State variables ---
   const pointLightRef = useRef<THREE.PointLight>(null!); // Ref for the declarative light
 
   // --- Client-Side Movement Calculation (Matches Server Logic *before* Sign Flip) ---
   const calculateClientMovement = useCallback((currentPos: THREE.Vector3, currentRot: THREE.Euler, inputState: InputState, delta: number): THREE.Vector3 => {
-    // console.log(`[Move Calc] cameraMode: ${cameraMode}`); // Suppressed log
+    // dlog(`[Move Calc] cameraMode: ${cameraMode}`); // Suppressed log
     
     // Skip if no movement input
     if (!inputState.forward && !inputState.backward && !inputState.left && !inputState.right) {
@@ -180,7 +173,7 @@ export const Player: React.FC<PlayerProps> = ({
     } else {
       // --- ORBITAL MODE: Use fixed rotation from when mode was entered ---
       rotationYaw = orbitalCameraRef.current.playerFacingRotation;
-      console.log(`[Orbital Move Calc] Mode: ORBITAL, Using fixed yaw: ${rotationYaw.toFixed(3)}`);
+      dlog(`[Orbital Move Calc] Mode: ORBITAL, Using fixed yaw: ${rotationYaw.toFixed(3)}`);
     }
 
     // 3. Rotate the LOCAL movement vector by the appropriate YAW to get the WORLD direction
@@ -195,451 +188,102 @@ export const Player: React.FC<PlayerProps> = ({
 
     // Debug log for orbital mode
     if (cameraMode === CAMERA_MODES.ORBITAL) {
-        console.log(`[Orbital Move Calc] Input: F${inputState.forward?1:0} B${inputState.backward?1:0} L${inputState.left?1:0} R${inputState.right?1:0}, MoveVector: (${worldMoveVector.x.toFixed(2)}, ${worldMoveVector.z.toFixed(2)}), Delta: ${delta.toFixed(4)}`);
+        dlog(`[Orbital Move Calc] Input: F${inputState.forward?1:0} B${inputState.backward?1:0} L${inputState.left?1:0} R${inputState.right?1:0}, MoveVector: (${worldMoveVector.x.toFixed(2)}, ${worldMoveVector.z.toFixed(2)}), Delta: ${delta.toFixed(4)}`);
     }
 
     return finalPosition;
   }, [cameraMode]); // Depend on cameraMode from state
 
-  // --- Effect for model loading ---
+  // --- Load shared character assets and instantiate this player's model ---
+  // Model + animation clips are loaded once per character class and cached in
+  // playerAssets.ts; each Player clones the rigged template (independent
+  // animation) and builds its own mixer/actions from the shared clips.
   useEffect(() => {
-    if (!playerData) return; // Guard clause
-    const loader = new FBXLoader();
+    let cancelled = false;
+    let createdMixer: THREE.AnimationMixer | null = null;
+    let createdModel: THREE.Group | null = null;
+    const groupEl = group.current;
 
-    loader.load(
-      mainModelPath,
-      (fbx) => {
-        
-        // Simplified: Just add the model, setup scale, shadows etc.
-        if (characterClass === 'Paladin') {
-          fbx.scale.setScalar(1.0);
-        } else {
-          fbx.scale.setScalar(0.02); // Default/Wizard scale
-        }
-        fbx.position.set(0, 0, 0);
-        // REMOVED TRAVERSE for setting castShadow/receiveShadow to avoid potential errors
+    loadCharacterAssets(characterClass)
+      .then(({ template, clips }) => {
+        if (cancelled || !groupEl) return;
 
-        setModel(fbx); 
-        
-        if (group.current) {
-          group.current.add(fbx);
-          // Apply position adjustment after adding to group
-          fbx.position.y = -0.1; // Lower the model slightly
-          
-          // --- TRY AGAIN: Traverse to remove embedded lights --- 
-          try { 
-            console.log(`[Player Model Effect ${playerData.username}] Traversing loaded FBX to find embedded lights...`);
-            fbx.traverse((child) => {
-              if (child && child instanceof THREE.Light) { 
-                // --- LOGGING ADDED HERE ---
-                console.log(`[Player Model Effect ${playerData.username}] --- FOUND AND REMOVING EMBEDDED LIGHT --- Name: ${child.name || 'Unnamed'}, Type: ${child.type}`);
-                child.removeFromParent();
-              }
-            });
-          } catch (traverseError) {
-             console.error(`[Player Model Effect ${playerData.username}] Error during fbx.traverse for light removal:`, traverseError);
-          }
-          // --- END TRAVERSE ATTEMPT --- 
+        const fbx = instantiateCharacter(template);
+        fbx.position.set(0, -0.1, 0); // Lower the model slightly onto the ground
+        groupEl.add(fbx);
 
-        } 
-        
         const newMixer = new THREE.AnimationMixer(fbx);
+        const acts: Record<string, THREE.AnimationAction> = {};
+        Object.entries(clips).forEach(([name, clip]) => {
+          const action = newMixer.clipAction(clip);
+          if (name === 'idle' || name.startsWith('walk-') || name.startsWith('run-')) {
+            action.setLoop(THREE.LoopRepeat, Infinity);
+          } else {
+            action.setLoop(THREE.LoopOnce, 1);
+            action.clampWhenFinished = true;
+          }
+          acts[name] = action;
+        });
+
+        createdMixer = newMixer;
+        createdModel = fbx;
+
+        setModel(fbx);
         setMixer(newMixer);
+        setAnimations(acts);
         setModelLoaded(true);
-        
-        // Initialize local refs for local player
+
+        // Play idle immediately so the model isn't stuck in a T-pose.
+        if (acts['idle']) {
+          acts['idle'].reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.25).play();
+          setCurrentAnimation('idle');
+        }
+
         if (isLocalPlayer) {
           localPositionRef.current.set(playerData.position.x, playerData.position.y, playerData.position.z);
           localRotationRef.current.set(0, playerData.rotation.y, 0, 'YXZ');
         }
-      },
-      (progress) => { /* Optional progress log */ },
-      (error: any) => {
-        console.error(`[Player Model Effect ${playerData.username}] Error loading model ${mainModelPath}:`, error);
-      }
-    );
+      })
+      .catch((err) => derror(`[Player ${playerData.username}] Failed to load character assets:`, err));
 
-    // Cleanup for model loading effect
     return () => {
-      if (mixer) mixer.stopAllAction();
-      if (model && group.current) group.current.remove(model);
-      // Dispose geometry/material if needed
+      cancelled = true;
+      if (createdMixer) createdMixer.stopAllAction();
+      if (createdModel && groupEl) groupEl.remove(createdModel);
       setModel(null);
       setMixer(null);
       setModelLoaded(false);
-      animationsLoadedRef.current = false;
     };
-  }, [mainModelPath, characterClass]); // ONLY depend on model path and class
-
-  // New useEffect to load animations when mixer is ready
-  useEffect(() => {
-    if (mixer && model && !animationsLoadedRef.current) {
-      console.log("Mixer and model are ready, loading animations...");
-      animationsLoadedRef.current = true;
-      loadAnimations(mixer);
-    }
-  }, [mixer, model, characterClass]);
-
-  // Function to load animations
-  const loadAnimations = (mixerInstance: THREE.AnimationMixer) => {
-    if (!mixerInstance) {
-      console.error("Cannot load animations: mixer is not initialized");
-      return;
-    }
-    
-    console.log(`Loading animations for ${characterClass}...`);
-    
-    const animationPaths: Record<string, string> = {};
-    const basePath = characterClass === 'Paladin' ? '/models/paladin/' : '/models/wizard/';
-    
-    // Map animation keys to file paths, ensuring exact matching of key names
-    // Define all animation keys with their exact matching paths
-    const animKeys = {
-      idle: characterClass === 'Wizard' ? 'wizard-standing-idle.fbx' : 'paladin-idle.fbx',
-      'walk-forward': characterClass === 'Wizard' ? 'wizard-standing-walk-forward.fbx' : 'paladin-walk-forward.fbx',
-      'walk-back': characterClass === 'Wizard' ? 'wizard-standing-walk-back.fbx' : 'paladin-walk-back.fbx',
-      'walk-left': characterClass === 'Wizard' ? 'wizard-standing-walk-left.fbx' : 'paladin-walk-left.fbx',
-      'walk-right': characterClass === 'Wizard' ? 'wizard-standing-walk-right.fbx' : 'paladin-walk-right.fbx',
-      'run-forward': characterClass === 'Wizard' ? 'wizard-standing-run-forward.fbx' : 'paladin-run-forward.fbx',
-      'run-back': characterClass === 'Wizard' ? 'wizard-standing-run-back.fbx' : 'paladin-run-back.fbx',
-      'run-left': characterClass === 'Wizard' ? 'wizard-standing-run-left.fbx' : 'paladin-run-left.fbx',
-      'run-right': characterClass === 'Wizard' ? 'wizard-standing-run-right.fbx' : 'paladin-run-right.fbx',
-      jump: characterClass === 'Wizard' ? 'wizard-standing-jump.fbx' : 'paladin-jump.fbx',
-      attack1: characterClass === 'Wizard' ? 'wizard-standing-1h-magic-attack-01.fbx' : 'paladin-attack.fbx',
-      cast: characterClass === 'Wizard' ? 'wizard-standing-2h-magic-area-attack-02.fbx' : 'paladin-cast.fbx',
-      damage: characterClass === 'Wizard' ? 'wizard-standing-react-small-from-front.fbx' : 'paladin-damage.fbx',
-      death: characterClass === 'Wizard' ? 'wizard-standing-react-death-backward.fbx' : 'paladin-death.fbx',
-    };
-    
-    // Create animation paths
-    Object.entries(animKeys).forEach(([key, filename]) => {
-      animationPaths[key] = `${basePath}${filename}`;
-    });
-    
-    console.log('Animation paths:', animationPaths);
-    
-    const loader = new FBXLoader();
-    const newAnimations: Record<string, THREE.AnimationAction> = {};
-    let loadedCount = 0;
-    const totalCount = Object.keys(animationPaths).length;
-    
-    console.log(`Will load ${totalCount} animations`);
-    
-    // Load each animation
-    Object.entries(animationPaths).forEach(([name, path]) => {
-      console.log(`Loading animation "${name}" from ${path}`);
-      
-      // First check if the file exists
-      fetch(path)
-        .then(response => {
-          if (!response.ok) {
-            console.error(`Animation file not found: ${path} (${response.status})`);
-            loadedCount++;
-            checkCompletedLoading();
-            return;
-          }
-          
-          // File exists, proceed with loading
-          loadAnimationFile(name, path, mixerInstance);
-        })
-        .catch(error => {
-          console.error(`Network error checking animation file ${path}:`, error);
-          loadedCount++;
-          checkCompletedLoading();
-        });
-    });
-
-    // Function to check if all animations are loaded
-    const checkCompletedLoading = () => {
-      loadedCount++; // Increment here after load attempt (success or fail)
-      if (loadedCount === totalCount) {
-        const successCount = Object.keys(newAnimations).length;
-        if (successCount === totalCount) {
-          console.log(`✅ All ${totalCount} animations loaded successfully.`);
-        } else {
-           console.warn(`⚠️ Loaded ${successCount}/${totalCount} animations. Some might be missing.`);
-        }
-        
-        // Store all successfully loaded animations in component state
-        setAnimations(newAnimations);
-        
-        // Debug: log all available animations
-        console.log("Available animations: ", Object.keys(newAnimations).join(", "));
-        
-        // Play idle animation if available
-        if (newAnimations['idle']) {
-          // Use setTimeout to ensure state update has propagated and mixer is ready
-          setTimeout(() => {
-             if (animationsLoadedRef.current) { // Check if still relevant
-                 console.log('Playing initial idle animation');
-                 // Use the local newAnimations reference to be sure it's available
-                 const idleAction = newAnimations['idle'];
-                 idleAction.reset()
-                           .setEffectiveTimeScale(1)
-                           .setEffectiveWeight(1)
-                           .fadeIn(0.3)
-                           .play();
-                 setCurrentAnimation('idle');
-             }
-          }, 100); 
-        } else {
-          console.error('Idle animation not found among loaded animations! Player might not animate initially.');
-        }
-      }
-    };
-
-    // Function to load an animation file
-    const loadAnimationFile = (name: string, path: string, mixerInstance: THREE.AnimationMixer) => {
-      if (!mixerInstance) {
-        console.error(`Cannot load animation ${name}: mixer is not initialized`);
-        // loadedCount is incremented in checkCompletedLoading call below
-        checkCompletedLoading();
-        return;
-      }
-      
-      loader.load(
-        path,
-        (animFbx) => {
-          try {
-            if (!animFbx.animations || animFbx.animations.length === 0) {
-              console.error(`No animations found in ${path}`);
-              checkCompletedLoading(); // Call completion even on error
-              return;
-            }
-            
-            const clip = animFbx.animations[0];
-            console.log(`Animation "${name}" loaded. Duration: ${clip.duration}s, Tracks: ${clip.tracks.length}`);
-            
-            // Try to find hierarchy and parent bone
-            let rootBoneName = '';
-            animFbx.traverse((obj) => {
-              if (obj.type === 'Bone' && !rootBoneName && obj.parent && obj.parent.type === 'Object3D') {
-                rootBoneName = obj.name;
-                // console.log(`Found potential root bone for anim ${name}: ${rootBoneName}`);
-              }
-            });
-            
-            // Apply name to the clip
-            clip.name = name;
-            
-            // Retarget the clip if needed
-            const retargetedClip = retargetClip(clip, path);
-            
-            // Make sure we're in place (remove root motion)
-            makeAnimationInPlace(retargetedClip);
-            
-            const action = mixerInstance.clipAction(retargetedClip);
-            newAnimations[name] = action;
-            
-            // Set loop mode based on animation type
-            if (
-              name === 'idle' ||
-              name.startsWith('walk-') ||
-              name.startsWith('run-')
-            ) {
-              action.setLoop(THREE.LoopRepeat, Infinity);
-            } else {
-              action.setLoop(THREE.LoopOnce, 1);
-              action.clampWhenFinished = true;
-            }
-
-            // --- T-POSE FIX ---
-            // Play idle the MOMENT it loads instead of waiting for all ~14
-            // animation files to download. This stops the model from lingering
-            // in a T-pose while the rest of the clips stream in.
-            if (name === 'idle') {
-              action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.25).play();
-              setCurrentAnimation('idle');
-            }
-            // Make the clip available to the animation system immediately.
-            setAnimations((prev) => (prev[name] ? prev : { ...prev, [name]: action }));
-
-            console.log(`✅ Animation "${name}" processed and ready.`);
-          } catch (e) {
-            console.error(`Error processing animation ${name}:`, e);
-          }
-          
-          checkCompletedLoading(); // Call completion after processing
-        },
-        (progress) => {
-          // Optional: Log animation loading progress for larger files
-          // if (progress.total > 1000000) { // Only for large files
-          //   console.log(`Loading ${name}: ${Math.round(progress.loaded / progress.total * 100)}%`);
-          // }
-        },
-        (error: any) => {
-          console.error(`Error loading animation ${name} from ${path}: ${error.message || 'Unknown error'}`);
-          checkCompletedLoading(); // Call completion even on error
-        }
-      );
-    };
-  };
-
-  // Improve root motion removal function
-  const makeAnimationInPlace = (clip: THREE.AnimationClip) => {
-    // console.log(`Making animation "${clip.name}" in-place`);
-    
-    // Get all position tracks
-    const tracks = clip.tracks;
-    const positionTracks = tracks.filter(track => track.name.endsWith('.position'));
-    
-    if (positionTracks.length === 0) {
-      // console.log(`No position tracks found in "${clip.name}"`);
-      return;
-    }
-    
-    // console.log(`Found ${positionTracks.length} position tracks in "${clip.name}"`);
-    
-    // Find the root position track (typically the first bone)
-    // Common root bone names: Hips, mixamorigHips, root, Armature
-    let rootTrack: THREE.KeyframeTrack | undefined;
-    const rootNames = ['Hips.position', 'mixamorigHips.position', 'root.position', 'Armature.position', 'Root.position'];
-    rootTrack = positionTracks.find(track => rootNames.some(name => track.name.toLowerCase().includes(name.toLowerCase())));
-
-    if (!rootTrack) {
-        // If no common root name found, assume the first position track is the root
-        rootTrack = positionTracks[0];
-        // console.warn(`Using first position track "${rootTrack.name}" as root for in-place conversion for anim "${clip.name}".`);
-    } else {
-        // console.log(`Using root bone track "${rootTrack.name}" for in-place conversion for anim "${clip.name}"`);
-    }
-    
-    const rootTrackNameBase = rootTrack.name.split('.')[0];
-
-    // Filter out root position tracks to remove root motion
-    // Keep only the Y component of the root track if needed for jumps, etc.
-    const originalLength = clip.tracks.length;
-    clip.tracks = tracks.filter(track => {
-        if (track.name.startsWith(`${rootTrackNameBase}.position`)) {
-            // Maybe keep Y component in the future if needed, for now remove all XYZ root motion.
-            return false; // Remove X, Y, Z root position tracks
-        }
-        return true; // Keep other tracks
-    });
-    
-    // console.log(`Removed ${originalLength - clip.tracks.length} root motion tracks from "${clip.name}"`);
-  };
-
-  // Add a retargetClip function after makeAnimationInPlace
-  const retargetClip = (clip: THREE.AnimationClip, sourceModelPath: string) => {
-    if (!model) {
-      console.warn("Cannot retarget: model not loaded");
-      return clip;
-    }
-    
-    // console.log(`Retargeting animation "${clip.name}" from ${sourceModelPath}`);
-    
-    // Get source file basename (without extension)
-    const sourceFileName = sourceModelPath.split('/').pop()?.split('.')[0] || '';
-    const targetFileName = mainModelPath.split('/').pop()?.split('.')[0] || '';
-    
-    if (sourceFileName === targetFileName) {
-      // console.log(`Source and target models are the same (${sourceFileName}), no retargeting needed`);
-      return clip;
-    }
-    
-    // console.log(`Retargeting from "${sourceFileName}" to "${targetFileName}"`);
-    
-    // Create a new animation clip
-    const newTracks: THREE.KeyframeTrack[] = [];
-    
-    // Process each track to replace bone names if needed
-    clip.tracks.forEach(track => {
-      // The track name format is usually "boneName.property"
-      const trackNameParts = track.name.split('.');
-      if (trackNameParts.length < 2) {
-        // console.warn(`Strange track name format: ${track.name}`);
-        newTracks.push(track);
-        return;
-      }
-      
-      const boneName = trackNameParts[0];
-      const property = trackNameParts.slice(1).join('.');
-      
-      // Try to find corresponding bone in target model
-      // Check if we need any bone name mappings from source to target
-      let targetBoneName = boneName;
-      
-      // ** Bone Name Mapping (Example) **
-      // If source uses "bip01_" prefix and target uses "mixamorig", map them:
-      // if (boneName.startsWith('bip01_')) {
-      //   targetBoneName = boneName.replace('bip01_', 'mixamorig');
-      // }
-      // Add other mappings as needed based on model skeletons
-      
-      // Add the fixed track
-      const newTrackName = `${targetBoneName}.${property}`;
-      
-      // Only create new track if the name needs to change
-      if (newTrackName !== track.name) {
-        // console.log(`Remapping track: ${track.name} → ${newTrackName}`);
-        
-        // Create a new track with same data but new name
-        let newTrack: THREE.KeyframeTrack;
-        
-        if (track instanceof THREE.QuaternionKeyframeTrack) {
-          newTrack = new THREE.QuaternionKeyframeTrack(
-            newTrackName,
-            Array.from(track.times),
-            Array.from(track.values)
-          );
-        } else if (track instanceof THREE.VectorKeyframeTrack) {
-          newTrack = new THREE.VectorKeyframeTrack(
-            newTrackName,
-            Array.from(track.times),
-            Array.from(track.values)
-          );
-        } else {
-          // Fallback for NumberKeyframeTrack or others
-          newTrack = new THREE.KeyframeTrack(
-            newTrackName,
-            Array.from(track.times),
-            Array.from(track.values)
-          );
-        }
-        
-        newTracks.push(newTrack);
-      } else {
-        newTracks.push(track); // No change needed, push original track
-      }
-    });
-    
-    // Create a new animation clip with the fixed tracks
-    return new THREE.AnimationClip(
-      clip.name,
-      clip.duration,
-      newTracks,
-      clip.blendMode
-    );
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [characterClass]);
 
   // Update playAnimation to have better logging
   const playAnimation = useCallback((name: string, crossfadeDuration = 0.3) => {
     if (!mixer) return; // Ensure mixer exists
     
     if (!animations[name]) {
-      // console.warn(`Animation not found: ${name}`);
-      // console.log("Available animations:", Object.keys(animations).join(", "));
+      // dwarn(`Animation not found: ${name}`);
+      // dlog("Available animations:", Object.keys(animations).join(", "));
       // Fallback to idle if requested animation is missing
       if (name !== ANIMATIONS.IDLE && animations[ANIMATIONS.IDLE]) {
-        // console.log(`Falling back to ${ANIMATIONS.IDLE}`);
+        // dlog(`Falling back to ${ANIMATIONS.IDLE}`);
         name = ANIMATIONS.IDLE;
       } else {
          return; // Cannot play requested or fallback idle
       }
     }
     
-    // console.log(`Playing animation: ${name} (crossfade: ${crossfadeDuration}s)`);
+    // dlog(`Playing animation: ${name} (crossfade: ${crossfadeDuration}s)`);
     
     const targetAction = animations[name];
     const currentAction = animations[currentAnimation];
     
     if (currentAction && currentAction !== targetAction) {
-      // console.log(`Fading out previous animation: ${currentAnimation}`);
+      // dlog(`Fading out previous animation: ${currentAnimation}`);
       currentAction.fadeOut(crossfadeDuration);
     }
     
-    // console.log(`Starting animation: ${name}`);
+    // dlog(`Starting animation: ${name}`);
     targetAction.reset()
                 .setEffectiveTimeScale(1)
                 .setEffectiveWeight(1)
@@ -652,7 +296,7 @@ export const Player: React.FC<PlayerProps> = ({
   // --- NEW Effect: Explicitly set shadow props when model is loaded ---
   useEffect(() => {
     if (model && group.current) {
-      console.log(`[Player Shadow Effect ${playerData.username}] Model loaded, traversing group to set shadow props on meshes.`);
+      dlog(`[Player Shadow Effect ${playerData.username}] Model loaded, traversing group to set shadow props on meshes.`);
       group.current.traverse((child) => {
         if (child instanceof THREE.Mesh) {
           // Explicitly set both cast and receive, although cast is the primary goal here
@@ -780,7 +424,7 @@ export const Player: React.FC<PlayerProps> = ({
         const onFinished = (event: any) => {
           // Only act if the finished action is the one we are tracking
           if (event.action === action) {
-             // console.log(`Animation finished: ${currentAnimation}. Playing idle.`);
+             // dlog(`Animation finished: ${currentAnimation}. Playing idle.`);
              playAnimation(ANIMATIONS.IDLE, 0.1); // Faster transition back to idle
              mixer.removeEventListener('finished', onFinished); // Remove listener
           }
@@ -808,17 +452,17 @@ export const Player: React.FC<PlayerProps> = ({
     if (newMode === CAMERA_MODES.ORBITAL) {
       // Use the current reconciled rotation from the ref
       orbitalCameraRef.current.playerFacingRotation = localRotationRef.current.y;
-      console.log(`[Orbital Toggle] Storing playerFacingRotation: ${orbitalCameraRef.current.playerFacingRotation.toFixed(3)}`); // DEBUG
+      dlog(`[Orbital Toggle] Storing playerFacingRotation: ${orbitalCameraRef.current.playerFacingRotation.toFixed(3)}`); // DEBUG
       // Set the initial orbital angle to match the player's facing direction
       orbitalCameraRef.current.angle = localRotationRef.current.y;
       // Reset elevation to a default value for a consistent starting view
       orbitalCameraRef.current.elevation = Math.PI / 6; 
       
       // Log the stored rotation for debugging
-      console.log(`Entering orbital mode. Stored player rotation: ${(localRotationRef.current.y * (180/Math.PI)).toFixed(2)}°`);
+      dlog(`Entering orbital mode. Stored player rotation: ${(localRotationRef.current.y * (180/Math.PI)).toFixed(2)}°`);
     }
     
-    console.log(`Camera mode toggled to: ${newMode}`);
+    dlog(`Camera mode toggled to: ${newMode}`);
   }, [cameraMode]); // localRotationRef is not a state/prop, so not needed here
 
   // Set up keyboard handlers for camera toggling
@@ -852,10 +496,10 @@ export const Player: React.FC<PlayerProps> = ({
         group.current.getWorldPosition(groupWorldPos);
 
         /*if (pointLightRef.current.parent !== group.current) {
-          console.error(`[Player Frame ${playerData.username}] Light parent mismatch!`);
+          derror(`[Player Frame ${playerData.username}] Light parent mismatch!`);
         } else {
           // Log world positions for comparison
-          console.log(`[Player Frame ${playerData.username}] Group World: (${groupWorldPos.x.toFixed(2)}, ${groupWorldPos.y.toFixed(2)}, ${groupWorldPos.z.toFixed(2)}), Light World: (${lightWorldPos.x.toFixed(2)}, ${lightWorldPos.y.toFixed(2)}, ${lightWorldPos.z.toFixed(2)})`);
+          dlog(`[Player Frame ${playerData.username}] Group World: (${groupWorldPos.x.toFixed(2)}, ${groupWorldPos.y.toFixed(2)}, ${groupWorldPos.z.toFixed(2)}), Light World: (${lightWorldPos.x.toFixed(2)}, ${lightWorldPos.y.toFixed(2)}, ${lightWorldPos.z.toFixed(2)})`);
         }*/
       }
       // --- END LOG --- 
@@ -998,12 +642,12 @@ export const Player: React.FC<PlayerProps> = ({
               );
               debugArrowRef.current.userData.isDebugArrow = true; // Mark for potential future identification
               scene.add(debugArrowRef.current);
-              console.log("[Debug Arrow] Created arrow."); // Log creation
+              dlog("[Debug Arrow] Created arrow."); // Log creation
             }
           } else {
             // Remove arrow if it exists and shouldn't be visible
             if (debugArrowRef.current && debugArrowRef.current.parent) {
-               console.log("[Debug Arrow] Removing arrow (prop is false or no scene)."); // Log removal
+               dlog("[Debug Arrow] Removing arrow (prop is false or no scene)."); // Log removal
                debugArrowRef.current.parent.remove(debugArrowRef.current);
                debugArrowRef.current = null;
             }
@@ -1013,7 +657,7 @@ export const Player: React.FC<PlayerProps> = ({
         } else { // Not the local player anymore or initially
           // If this instance stops being the local player OR debug visibility is off, ensure arrow is removed
           if (debugArrowRef.current && debugArrowRef.current.parent) {
-               console.log("[Debug Arrow] Removing arrow (not local player)."); // Log removal
+               dlog("[Debug Arrow] Removing arrow (not local player)."); // Log removal
                debugArrowRef.current.parent.remove(debugArrowRef.current);
                debugArrowRef.current = null;
           }
@@ -1112,15 +756,15 @@ export const Player: React.FC<PlayerProps> = ({
 
       const serverAnim = playerData.currentAnimation;
 
-      // console.log(`[Anim Check] Received ServerAnim: ${serverAnim}, Current LocalAnim: ${currentAnimation}, Is Available: ${!!animations[serverAnim]}`);
+      // dlog(`[Anim Check] Received ServerAnim: ${serverAnim}, Current LocalAnim: ${currentAnimation}, Is Available: ${!!animations[serverAnim]}`);
 
       // Play animation if it's different and available
       if (serverAnim && serverAnim !== currentAnimation && animations[serverAnim]) {
-         // console.log(`[Anim Play] Server requested animation change to: ${serverAnim}`);
+         // dlog(`[Anim Play] Server requested animation change to: ${serverAnim}`);
         try {
           playAnimation(serverAnim, 0.2);
         } catch (error) {
-          console.error(`[Anim Error] Error playing animation ${serverAnim}:`, error);
+          derror(`[Anim Error] Error playing animation ${serverAnim}:`, error);
           // Attempt to fallback to idle if error occurs and not already idle
           if (animations['idle'] && currentAnimation !== 'idle') {
             playAnimation('idle', 0.2);
@@ -1128,7 +772,7 @@ export const Player: React.FC<PlayerProps> = ({
         }
       } else if (serverAnim && !animations[serverAnim]) {
          // Log if server requests an animation we don't have loaded
-         // console.warn(`[Anim Warn] Server requested unavailable animation: ${serverAnim}. Available: ${Object.keys(animations).join(', ')}`);
+         // dwarn(`[Anim Warn] Server requested unavailable animation: ${serverAnim}. Available: ${Object.keys(animations).join(', ')}`);
       }
     }
   }, [playerData.currentAnimation, animations, mixer, playAnimation, currentAnimation]); // Dependencies include things that trigger animation changes

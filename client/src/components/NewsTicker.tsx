@@ -4,6 +4,7 @@ import { MarketNews } from '../generated/types';
 interface NewsTickerProps {
   news: MarketNews[];
   regime?: number; // sim_math::Regime as u8 (0 calm, 1 volatile, 2 crisis)
+  onRegimeClick?: () => void;
 }
 
 const sentimentClass = (s: number) => (s >= 3 ? 'bull' : s <= -3 ? 'bear' : 'neutral');
@@ -16,7 +17,7 @@ const REGIMES = [
   { label: 'CRISIS', cls: 'bear' },
 ] as const;
 
-export const NewsTicker: React.FC<NewsTickerProps> = ({ news, regime = 0 }) => {
+export const NewsTicker: React.FC<NewsTickerProps> = ({ news, regime = 0, onRegimeClick }) => {
   const sorted = [...news].sort((a, b) => Number(b.newsId) - Number(a.newsId));
   const latest = sorted[0];
   const activeRegime = REGIMES[regime] ?? REGIMES[0];
@@ -27,13 +28,15 @@ export const NewsTicker: React.FC<NewsTickerProps> = ({ news, regime = 0 }) => {
         <span className="newsticker-ai">AI</span>
         <span className="newsticker-label">MARKET WIRE</span>
       </div>
-      <div
+      <button
+        type="button"
         className={`newsticker-regime ${activeRegime.cls}`}
-        title="Active market volatility regime — modulates simulated drift/volatility"
+        title="Active market volatility regime — click to see how the market is modelled"
+        onClick={onRegimeClick}
       >
         <span className="newsticker-regime-dot" />
         {activeRegime.label}
-      </div>
+      </button>
       <div className="newsticker-scroll">
         {sorted.length === 0 ? (
           <span className="newsticker-item neutral">◆ AI market simulator online — awaiting first headline…</span>

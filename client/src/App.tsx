@@ -56,6 +56,7 @@ import { GameHUD } from './components/GameHUD';
 import { MarketAsset, Portfolio, VehicleCatalog, FirmData, Employee, PropertyCatalog, OwnedProperty, RichListEntry, MarketNews } from './generated/types';
 import { RichList } from './components/RichList';
 import { NewsTicker } from './components/NewsTicker';
+import { MethodologyModal } from './components/MethodologyModal';
 import { QuestLog } from './components/QuestLog';
 import { generateMarketEvent } from './services/AI_Market_Events';
 import { DEMO_DURATION_MS, runDemoTimeline } from './demoTimeline';
@@ -95,6 +96,7 @@ function App() {
   const [showTerminal, setShowTerminal] = useState(false);
   const [showMentor, setShowMentor] = useState(false);
   const [showQuests, setShowQuests] = useState(false);
+  const [showMethodology, setShowMethodology] = useState(false);
   const [demoCaption, setDemoCaption] = useState<string | null>(null);
   const [demoProgress, setDemoProgress] = useState(0);
   const isDemo = useRef<boolean>(
@@ -796,6 +798,7 @@ function App() {
             marketAssets={marketAssets}
             onOpenTerminal={() => setShowTerminal(true)}
             onOpenMentor={() => setShowMentor(true)}
+            onOpenMethodology={() => setShowMethodology(true)}
             nearBrokerage={nearBrokerage}
             nearMentor={nearMentor}
           />
@@ -809,7 +812,9 @@ function App() {
           )}
 
           <RichList entries={richList} localIdentity={identity} />
-          <NewsTicker news={marketNews} regime={marketRegime} />
+          <NewsTicker news={marketNews} regime={marketRegime} onRegimeClick={() => setShowMethodology(true)} />
+
+          {showMethodology && <MethodologyModal onClose={() => setShowMethodology(false)} />}
 
           {localPlayer && !showTerminal && !showMentor && !isDemo && (
             <button className="quest-fab" onClick={() => setShowQuests((p) => !p)}>

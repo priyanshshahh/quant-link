@@ -225,8 +225,15 @@
   font-weight: 800;
   letter-spacing: 1.5px;
   background: rgba(0, 0, 0, 0.55);
+  border: none;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   z-index: 2;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s ease;
+}
+.newsticker-regime:hover {
+  background: rgba(255, 255, 255, 0.08);
 }
 .newsticker-regime .newsticker-regime-dot {
   width: 8px;
@@ -239,6 +246,102 @@
 .newsticker-regime.bull { color: #39ff14; }
 .newsticker-regime.bear { color: #ff4466; }
 .newsticker-regime.neutral { color: #ffd400; }
+
+/* ===================== METHODOLOGY MODAL ===================== */
+.methodology-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 2, 10, 0.72);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 24px;
+}
+.methodology-panel {
+  width: min(760px, 96vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: linear-gradient(160deg, #0c0a1a, #0a0812);
+  border: 1px solid rgba(177, 75, 255, 0.35);
+  border-radius: 14px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65), 0 0 40px rgba(177, 75, 255, 0.12);
+  color: #d9d9e6;
+}
+.methodology-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px 16px;
+  background: linear-gradient(180deg, rgba(12, 10, 26, 0.98), rgba(12, 10, 26, 0.9));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.methodology-header h2 {
+  margin: 0;
+  font-size: 20px;
+  color: #fff;
+  letter-spacing: 0.3px;
+}
+.methodology-sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: #9a9ab0;
+}
+.methodology-close {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  cursor: pointer;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+.methodology-close:hover { background: rgba(255, 68, 102, 0.25); }
+.methodology-body { padding: 8px 24px 26px; }
+.methodology-flag {
+  display: inline-block;
+  margin: 14px 0 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #ffd400;
+  background: rgba(255, 212, 0, 0.1);
+  border: 1px solid rgba(255, 212, 0, 0.3);
+  border-radius: 6px;
+}
+.methodology-body section { margin-top: 18px; }
+.methodology-body h3 {
+  margin: 0 0 8px;
+  font-size: 14.5px;
+  color: #b14bff;
+  letter-spacing: 0.4px;
+}
+.methodology-body p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.6; }
+.methodology-body em { color: #c9c9e0; font-style: italic; }
+.methodology-body strong { color: #fff; }
+.methodology-eq {
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 10px 0;
+  color: #00e5ff;
+  font-size: 14px;
+  overflow-x: auto;
+}
+.methodology-nots { margin: 0; padding-left: 18px; }
+.methodology-nots li { font-size: 13px; line-height: 1.55; margin-bottom: 7px; }
+.methodology-refs { border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 14px; }
+
+.action-btn.methodology { background: linear-gradient(90deg, #1b2a4a, #163a5a); }
 
 .newsticker-scroll {
   flex: 1;

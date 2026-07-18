@@ -5,6 +5,7 @@ interface GameHUDProps {
   marketAssets: MarketAsset[];
   onOpenTerminal: () => void;
   onOpenMentor: () => void;
+  onOpenMethodology: () => void;
   nearBrokerage: boolean;
   nearMentor: boolean;
 }
@@ -13,6 +14,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   marketAssets,
   onOpenTerminal,
   onOpenMentor,
+  onOpenMethodology,
   nearBrokerage,
   nearMentor,
 }) => {
@@ -42,6 +44,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         </button>
         <button className={`action-btn mentor ${nearMentor ? 'pulse' : ''}`} onClick={onOpenMentor}>
           🧠 AI Mentor <kbd>E</kbd>
+        </button>
+        <button className="action-btn methodology" onClick={onOpenMethodology} title="How the simulated market works">
+          📊 How it works
         </button>
       </div>
 

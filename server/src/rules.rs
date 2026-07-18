@@ -118,6 +118,34 @@ pub fn headcount_cap(tier: u32) -> usize {
     8 + (tier * 4) as usize
 }
 
+/// Escalating cash cost to buy the next knowledge level (level 0->1 costs
+/// $25k, 1->2 $50k, 2->3 $75k). Knowledge is framed as a purchasable upgrade
+/// path in the UI, so it should draw down cash rather than being free.
+pub fn knowledge_upgrade_cost(current_level: u32) -> f64 {
+    25_000.0 * (current_level as f64 + 1.0)
+}
+
+/// FNV-1a fold of a byte slice into a u64. Used to derive a stable per-identity
+/// value (identities are 32 bytes) without pulling in a hashing dependency.
+pub fn hash_bytes(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a offset basis
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3); // FNV prime
+    }
+    h
+}
+
+/// Deterministic index in `[0, n)` from a hash. Used to pick a spawn color from
+/// the player's identity so the colour is stable per identity, instead of being
+/// assigned by join order (which collides after enough join/leave churn).
+pub fn index_from_hash(hash: u64, n: usize) -> usize {
+    if n == 0 {
+        return 0;
+    }
+    (hash % n as u64) as usize
+}
+
 /// Per-tick salary for a hireable role, or `None` for an unrecognised role.
 pub fn role_salary(role: &str) -> Option<f64> {
     match role {
@@ -267,5 +295,26 @@ mod tests {
         assert_eq!(role_salary("trader"), Some(80.0));
         assert_eq!(role_salary("engineer"), Some(90.0));
         assert_eq!(role_salary("astronaut"), None);
+    }
+
+    #[test]
+    fn knowledge_cost_escalates_per_level() {
+        assert_eq!(knowledge_upgrade_cost(0), 25_000.0);
+        assert_eq!(knowledge_upgrade_cost(1), 50_000.0);
+        assert_eq!(knowledge_upgrade_cost(2), 75_000.0);
+    }
+
+    #[test]
+    fn hash_bytes_is_deterministic_and_sensitive() {
+        assert_eq!(hash_bytes(&[1, 2, 3]), hash_bytes(&[1, 2, 3]));
+        assert_ne!(hash_bytes(&[1, 2, 3]), hash_bytes(&[3, 2, 1]));
+    }
+
+    #[test]
+    fn index_from_hash_is_bounded() {
+        for h in [0u64, 1, 7, 1_000_000, u64::MAX] {
+            assert!(index_from_hash(h, 6) < 6);
+        }
+        assert_eq!(index_from_hash(123, 0), 0); // no panic on empty
     }
 }

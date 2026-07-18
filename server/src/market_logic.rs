@@ -371,6 +371,12 @@ pub fn upgrade_knowledge(ctx: &ReducerContext) -> Result<(), String> {
         return Err("Already at max knowledge level".to_string());
     }
 
+    let cost = rules::knowledge_upgrade_cost(player.knowledge_level);
+    if !rules::can_afford(player.cash_balance, cost) {
+        return Err(format!("Need ${:.0} to study the next level", cost));
+    }
+
+    player.cash_balance -= cost;
     player.knowledge_level += 1;
     ctx.db.player().identity().update(player);
     Ok(())

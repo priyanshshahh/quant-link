@@ -339,7 +339,10 @@ pub fn register_player(ctx: &ReducerContext, username: String, character_class: 
 
     let player_count = ctx.db.player().iter().count();
     let colors = ["cyan", "magenta", "yellow", "lightgreen", "white", "orange"];
-    let assigned_color = colors[player_count % colors.len()].to_string();
+    // Derive the colour from the identity (stable per player) rather than join
+    // order, which could hand two connected players the same colour after churn.
+    let color_hash = rules::hash_bytes(&player_identity.to_byte_array());
+    let assigned_color = colors[rules::index_from_hash(color_hash, colors.len())].to_string();
     let spawn_position = Vector3 {
         x: (player_count as f32 * 4.0) - 2.0,
         y: 1.0,
